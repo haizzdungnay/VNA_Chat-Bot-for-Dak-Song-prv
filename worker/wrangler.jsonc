@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vna-dak-song-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dak-song-db",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "vars": {
+    "AI_PROVIDER": "workers-ai",
+    "AI_MODEL": "@cf/meta/llama-3.1-8b-instruct",
+    "CORS_ALLOW_ORIGIN": "*"
+  }
+}

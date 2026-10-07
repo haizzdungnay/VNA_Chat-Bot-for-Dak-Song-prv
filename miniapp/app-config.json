@@ -1,0 +1,10 @@
+{
+  "app": {
+    "title": "Du lịch Đắk Song",
+    "headerTitle": "Du lịch Đắk Song",
+    "headerColor": "#0068FF",
+    "textColor": "white",
+    "statusBar": "transparent",
+    "leftButton": "none"
+  }
+}
