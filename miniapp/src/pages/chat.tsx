@@ -18,6 +18,7 @@ const AIChatPage: React.FC = () => {
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
 
   // Cached map of placeId -> Place to render PlaceCards in chat
   const [placesCache, setPlacesCache] = useState<Record<string, Place>>({});
@@ -52,20 +53,22 @@ const AIChatPage: React.FC = () => {
     }
   };
 
-  const handleSendMessage = async (textToSend?: string) => {
-    const content = (textToSend || inputText).trim();
+  const executeSendMessage = async (content: string, isRetry = false) => {
     if (!content || loading) return;
 
-    const userMsg: ChatMessage = {
-      id: String(Date.now()),
-      role: "user",
-      content,
-    };
+    if (!isRetry) {
+      const userMsg: ChatMessage = {
+        id: String(Date.now()),
+        role: "user",
+        content,
+      };
+      setMessages((prev) => [...prev, userMsg]);
+      setInputText("");
+    }
 
-    setMessages((prev) => [...prev, userMsg]);
-    setInputText("");
     setLoading(true);
     setError(null);
+    setLastFailedMessage(content);
 
     try {
       const historyPayload = messages
@@ -86,6 +89,7 @@ const AIChatPage: React.FC = () => {
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
+      setLastFailedMessage(null);
 
       if (res.placeIds && res.placeIds.length > 0) {
         resolvePlaces(res.placeIds);
@@ -94,6 +98,19 @@ const AIChatPage: React.FC = () => {
       setError(err?.message || "Không thể gửi tin nhắn. Vui lòng thử lại.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSendMessage = (textToSend?: string) => {
+    const content = (textToSend || inputText).trim();
+    if (content) {
+      executeSendMessage(content, false);
+    }
+  };
+
+  const handleRetry = () => {
+    if (lastFailedMessage) {
+      executeSendMessage(lastFailedMessage, true);
     }
   };
 
@@ -193,7 +210,7 @@ const AIChatPage: React.FC = () => {
               <Button
                 size="small"
                 variant="tertiary"
-                onClick={() => handleSendMessage()}
+                onClick={handleRetry}
                 style={{ marginTop: 4 }}
               >
                 Thử lại

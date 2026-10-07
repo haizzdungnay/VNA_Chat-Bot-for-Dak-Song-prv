@@ -7,7 +7,7 @@ Foundation skeleton cho dự án **Zalo Mini App du lịch Đắk Song** do VNA 
 ## 1. Kiến trúc hệ thống (Architecture)
 
 ```text
-Zalo Mini App (React + Vite + zmp-sdk + zmp-ui)
+Zalo Mini App (React 18 + Vite + zmp-sdk + zmp-ui)
                  │
                  │ HTTPS REST API
                  ▼
@@ -16,8 +16,8 @@ Zalo Mini App (React + Vite + zmp-sdk + zmp-ui)
         ┌────────┴────────┐
         ▼                 ▼
 Cloudflare D1       AI Provider (Adapter Pattern)
-  (SQLite DB)             ├─ Cloudflare Workers AI
-                          └─ OpenAI-Compatible API
+  (SQLite DB)             ├─ WorkersAIProvider (@cf/meta/llama-3.1-8b-instruct-fast)
+                          └─ OpenAICompatibleProvider (REST Chat Completions)
 ```
 
 ---
@@ -33,7 +33,7 @@ VNA_Chat-Bot-for-Dak-Song-prv/
 │   │   ├── css/                  # Base styles
 │   │   ├── pages/                # HomePage, ExplorePage, PlaceDetailPage, AIChatPage
 │   │   ├── services/             # API client (fetch backend)
-│   │   ├── types/                # Shared TypeScript contracts
+│   │   ├── types/                # Shared TypeScript contracts (Place, Category, Chat)
 │   │   ├── app.tsx               # Entrypoint & Router
 │   │   └── vite-env.d.ts
 │   ├── app-config.json           # Zalo Mini App configuration
@@ -45,20 +45,20 @@ VNA_Chat-Bot-for-Dak-Song-prv/
 │
 ├── worker/                       # Backend Cloudflare Worker
 │   ├── migrations/
-│   │   ├── 0001_initial.sql      # Schema: categories, places, indexes
-│   │   └── 0002_seed.sql         # Dữ liệu placeholder phát triển
+│   │   ├── 0001_initial.sql      # Schema: categories, places (images_json, metadata), indexes
+│   │   └── 0002_seed.sql         # Dữ liệu placeholder phát triển rõ ràng
 │   ├── src/
 │   │   ├── prompts/              # System prompt trợ lý du lịch Đắk Song
 │   │   ├── repositories/         # CategoryRepository, PlaceRepository (D1 access)
 │   │   ├── routes/               # Health, Categories, Places, Chat
 │   │   ├── services/             # ChatService, AI Provider (Workers AI & OpenAI-compatible)
 │   │   ├── types/                # Worker Env, Contracts, AI Provider interfaces
-│   │   ├── utils/                # CORS response helpers, Lightweight native router
+│   │   ├── utils/                # CORS response helpers, errors, native router
 │   │   └── index.ts              # Worker native fetch handler
 │   ├── test/                     # Router unit tests (node:test)
 │   ├── package.json
 │   ├── tsconfig.json
-│   ├── wrangler.jsonc            # Cloudflare Worker & D1/AI bindings
+│   ├── wrangler.jsonc            # Cloudflare Worker v4 & D1/AI bindings
 │   └── .dev.vars.example
 │
 ├── .gitignore
@@ -73,7 +73,7 @@ VNA_Chat-Bot-for-Dak-Song-prv/
 - **Node.js**: v18.0.0 trở lên (khuyến nghị v20+)
 - **npm**: v9.0.0 trở lên
 - **Zalo Mini App CLI**: cài toàn cục `npm install -g zmp-cli` (khi cần deploy/login Zalo)
-- **Tài khoản Cloudflare** & **Wrangler**: đã cài đặt qua devDependencies hoặc toàn cục
+- **Tài khoản Cloudflare** & **Wrangler v4**: đã cài đặt qua devDependencies
 
 ---
 
@@ -96,7 +96,7 @@ npm install
    ```bash
    cp worker/.dev.vars.example worker/.dev.vars
    ```
-   Cấu hình `AI_PROVIDER` (`workers-ai` hoặc `openai-compatible`) và API key nếu cần.
+   Cấu hình `AI_PROVIDER` (`workers-ai` hoặc `openai-compatible`), model (mặc định `@cf/meta/llama-3.1-8b-instruct-fast`), `AI_JSON_MODE=false` nếu provider bên ngoài không hỗ trợ json object format.
 
 ### 4.3 Khởi tạo Cloudflare D1 Database
 Tạo D1 database trên Cloudflare:
@@ -111,7 +111,7 @@ Chạy trên môi trường local:
 # 1. Tạo bảng
 npx --workspace worker wrangler d1 execute dak-song-db --local --file migrations/0001_initial.sql
 
-# 2. Seed dữ liệu mẫu (Placeholder dev data)
+# 2. Seed dữ liệu mẫu (Placeholder dev data rõ ràng)
 npx --workspace worker wrangler d1 execute dak-song-db --local --file migrations/0002_seed.sql
 ```
 
@@ -139,7 +139,7 @@ npm --workspace worker run cf-typegen
     ```
     Mini App Vite dev server sẽ khởi chạy tại `http://localhost:5173` (hoặc port được cấp).
 
-### 4.7 Kiểm tra & Build (Typecheck & Build)
+### 4.7 Kiểm tra & Build (Typecheck & Build Validation)
 ```bash
 # Chạy toàn bộ test
 npm run test
@@ -147,7 +147,7 @@ npm run test
 # Typecheck cả 2 workspace
 npm run typecheck
 
-# Build Mini App ra thư mục miniapp/www và kiểm tra Worker
+# Build Mini App ra miniapp/www và validate Worker bundle qua Wrangler dry-run
 npm run build
 ```
 
@@ -165,5 +165,5 @@ npm run build
 
 ## 5. Quy tắc về dữ liệu địa điểm (Data Notice)
 
-Dữ liệu ban đầu trong `0002_seed.sql` là **dữ liệu mẫu phục vụ kiểm thử (placeholder)**.
+Dữ liệu ban đầu trong `0002_seed.sql` là **dữ liệu mẫu phục vụ kiểm thử (placeholder rõ ràng: Địa điểm mẫu 01..04)** với các trường tọa độ, địa chỉ, số điện thoại để `NULL`.
 TUYỆT ĐỐI không tự sáng tác giá vé, số điện thoại, giờ hoạt động hoặc dữ liệu chưa được xác minh của huyện Đắk Song. Khi có dữ liệu kiểm chứng chính thức từ địa phương/VNA, sẽ cập nhật migration dữ liệu thật.

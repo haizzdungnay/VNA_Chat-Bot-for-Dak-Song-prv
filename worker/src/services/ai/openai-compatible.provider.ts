@@ -1,4 +1,5 @@
 import type { AIProvider, ChatInput, ChatResponse, Env } from "../../types";
+import { AIProviderError } from "../../utils/errors";
 
 export class OpenAICompatibleProvider implements AIProvider {
   constructor(private env: Env) {}
@@ -7,6 +8,7 @@ export class OpenAICompatibleProvider implements AIProvider {
     const baseUrl = this.env.AI_BASE_URL || "https://api.openai.com/v1";
     const apiKey = this.env.AI_API_KEY || "";
     const model = this.env.AI_MODEL || "gpt-4o-mini";
+    const useJsonMode = this.env.AI_JSON_MODE === "true" || this.env.AI_JSON_MODE === "1";
 
     const messages = [
       { role: "system", content: input.systemPrompt },
@@ -14,29 +16,46 @@ export class OpenAICompatibleProvider implements AIProvider {
       { role: "user", content: input.message },
     ];
 
-    const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.3,
-        max_tokens: 512,
-        response_format: { type: "json_object" },
-      }),
-    });
+    const bodyPayload: Record<string, unknown> = {
+      model,
+      messages,
+      temperature: 0.3,
+      max_tokens: 512,
+    };
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`OpenAI-compatible API error ${response.status}: ${errText.slice(0, 100)}`);
+    if (useJsonMode) {
+      bodyPayload.response_format = { type: "json_object" };
     }
 
-    const data: any = await response.json();
-    const content = data?.choices?.[0]?.message?.content || "";
-    return this.parseResponse(content);
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify(bodyPayload),
+      });
+    } catch (err: any) {
+      console.error("[OpenAICompatibleProvider] network failure");
+      throw new AIProviderError();
+    }
+
+    if (!response.ok) {
+      // Bảo mật: không bao giờ log API key hay expose response body upstream ra ngoài
+      console.error(`[OpenAICompatibleProvider] upstream error status: ${response.status}`);
+      throw new AIProviderError();
+    }
+
+    try {
+      const data: any = await response.json();
+      const content = data?.choices?.[0]?.message?.content || "";
+      return this.parseResponse(content);
+    } catch {
+      console.error("[OpenAICompatibleProvider] JSON parse failure from upstream");
+      throw new AIProviderError();
+    }
   }
 
   private parseResponse(raw: string): ChatResponse {
@@ -52,7 +71,7 @@ export class OpenAICompatibleProvider implements AIProvider {
         }
       }
     } catch {
-      // Fallback
+      // Fallback below
     }
 
     // ponytail: fallback plain text when LLM fails JSON; upgrade when json schema validation is active

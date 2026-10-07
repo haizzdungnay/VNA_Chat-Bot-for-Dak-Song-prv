@@ -92,9 +92,33 @@ const PlaceDetailPage: React.FC = () => {
             </Text>
 
             {place.address && (
-              <Box flex alignItems="center" mb={3}>
+              <Box flex alignItems="center" mb={2}>
                 <Text size="small" style={{ color: "#767a7f" }}>
                   📍 {place.address}
+                </Text>
+              </Box>
+            )}
+
+            {place.openingHours && (
+              <Box mb={2}>
+                <Text size="small" style={{ color: "#767a7f" }}>
+                  🕒 Giờ mở cửa: {place.openingHours}
+                </Text>
+              </Box>
+            )}
+
+            {place.phone && (
+              <Box mb={2}>
+                <Text size="small" style={{ color: "#767a7f" }}>
+                  📞 Điện thoại: {place.phone}
+                </Text>
+              </Box>
+            )}
+
+            {place.website && (
+              <Box mb={2}>
+                <Text size="small" style={{ color: "#0068ff" }}>
+                  🌐 Website: {place.website}
                 </Text>
               </Box>
             )}
@@ -140,6 +164,32 @@ const PlaceDetailPage: React.FC = () => {
                 {place.description}
               </Text>
             </Box>
+
+            {/* Gallery Images */}
+            {place.images && place.images.length > 0 && (
+              <Box mb={4}>
+                <Text bold size="large" style={{ marginBottom: 8 }}>
+                  Hình ảnh
+                </Text>
+                <Box flex style={{ gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+                  {place.images.map((imgUrl, idx) => (
+                    <img
+                      key={idx}
+                      src={imgUrl}
+                      alt={`${place.name} ${idx + 1}`}
+                      style={{
+                        width: 120,
+                        height: 90,
+                        objectFit: "cover",
+                        borderRadius: 8,
+                        flexShrink: 0,
+                      }}
+                      loading="lazy"
+                    />
+                  ))}
+                </Box>
+              </Box>
+            )}
 
             {place.isFeatured && (
               <div

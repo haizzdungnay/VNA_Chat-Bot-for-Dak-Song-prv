@@ -1,28 +1,37 @@
 import type { AIProvider, ChatInput, ChatResponse, Env } from "../../types";
+import { AIProviderError } from "../../utils/errors";
+
+const DEFAULT_WORKERS_AI_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
 
 export class WorkersAIProvider implements AIProvider {
   constructor(private env: Env) {}
 
   async chat(input: ChatInput): Promise<ChatResponse> {
     if (!this.env.AI) {
-      throw new Error("Workers AI binding (env.AI) is not available");
+      console.error("[WorkersAIProvider] env.AI binding is missing");
+      throw new AIProviderError();
     }
 
-    const model = this.env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct";
+    const model = this.env.AI_MODEL || DEFAULT_WORKERS_AI_MODEL;
     const messages = [
       { role: "system", content: input.systemPrompt },
       ...input.history.map((m) => ({ role: m.role, content: m.content })),
       { role: "user", content: input.message },
     ];
 
-    const aiResponse: any = await this.env.AI.run(model, {
-      messages,
-      max_tokens: 512,
-      temperature: 0.3,
-    });
+    try {
+      const aiResponse: any = await this.env.AI.run(model, {
+        messages,
+        max_tokens: 512,
+        temperature: 0.3,
+      });
 
-    const rawText = aiResponse?.response || aiResponse?.text || "";
-    return this.parseResponse(rawText);
+      const rawText = aiResponse?.response || aiResponse?.text || "";
+      return this.parseResponse(rawText);
+    } catch (err: any) {
+      console.error("[WorkersAIProvider] execution failed:", err?.name || "UnknownError");
+      throw new AIProviderError();
+    }
   }
 
   private parseResponse(raw: string): ChatResponse {

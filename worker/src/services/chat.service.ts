@@ -2,6 +2,7 @@ import type { ChatRequest, ChatResponse, Env } from "../types";
 import { PlaceRepository } from "../repositories/place.repository";
 import { createAIProvider } from "./ai";
 import { TRAVEL_ASSISTANT_SYSTEM_PROMPT } from "../prompts/travel-assistant";
+import { ValidationError } from "../utils/errors";
 
 const MAX_MESSAGE_LENGTH = 500;
 const MAX_HISTORY_MESSAGES = 8;
@@ -16,10 +17,10 @@ export class ChatService {
   async handleChat(body: Partial<ChatRequest>): Promise<ChatResponse> {
     const rawMessage = (body.message || "").trim();
     if (!rawMessage) {
-      throw new Error("Tin nhắn không được để trống");
+      throw new ValidationError("Tin nhắn không được để trống");
     }
     if (rawMessage.length > MAX_MESSAGE_LENGTH) {
-      throw new Error(`Tin nhắn vượt quá giới hạn ${MAX_MESSAGE_LENGTH} ký tự`);
+      throw new ValidationError(`Tin nhắn vượt quá giới hạn ${MAX_MESSAGE_LENGTH} ký tự`);
     }
 
     const sanitizedHistory = (body.history || [])
@@ -30,8 +31,8 @@ export class ChatService {
         content: m.content.slice(0, MAX_MESSAGE_LENGTH),
       }));
 
-    // Lấy danh sách địa điểm mẫu từ D1 làm context
-    const places = await this.placeRepo.findAll({ limit: 10 });
+    // ponytail: Load all places in MVP catalog for AI context. If catalog expands significantly, add category/keyword filtering.
+    const places = await this.placeRepo.findAll();
     const placesContext = places.length > 0
       ? places
           .map(

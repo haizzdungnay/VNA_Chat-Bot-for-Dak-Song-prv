@@ -17,7 +17,11 @@ export interface Place {
   latitude?: number;
   longitude?: number;
   imageUrl?: string;
+  images?: string[];
   mapUrl?: string;
+  openingHours?: string;
+  phone?: string;
+  website?: string;
   isFeatured: boolean;
 }
 

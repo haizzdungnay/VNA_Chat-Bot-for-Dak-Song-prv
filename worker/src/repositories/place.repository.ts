@@ -11,7 +11,11 @@ interface PlaceRow {
   latitude: number | null;
   longitude: number | null;
   imageUrl: string | null;
+  imagesJson: string | null;
   mapUrl: string | null;
+  openingHours: string | null;
+  phone: string | null;
+  website: string | null;
   isFeatured: number;
   c_id: string | null;
   c_slug: string | null;
@@ -32,7 +36,12 @@ export class PlaceRepository {
       SELECT p.id, p.slug, p.name, p.category_id as categoryId,
              p.short_description as shortDescription, p.description,
              p.address, p.latitude, p.longitude, p.image_url as imageUrl,
-             p.map_url as mapUrl, p.is_featured as isFeatured,
+             p.images_json as imagesJson,
+             p.map_url as mapUrl,
+             p.opening_hours as openingHours,
+             p.phone,
+             p.website,
+             p.is_featured as isFeatured,
              c.id as c_id, c.slug as c_slug, c.name as c_name, c.icon as c_icon
       FROM places p
       LEFT JOIN categories c ON p.category_id = c.id
@@ -76,7 +85,12 @@ export class PlaceRepository {
         SELECT p.id, p.slug, p.name, p.category_id as categoryId,
                p.short_description as shortDescription, p.description,
                p.address, p.latitude, p.longitude, p.image_url as imageUrl,
-               p.map_url as mapUrl, p.is_featured as isFeatured,
+               p.images_json as imagesJson,
+               p.map_url as mapUrl,
+               p.opening_hours as openingHours,
+               p.phone,
+               p.website,
+               p.is_featured as isFeatured,
                c.id as c_id, c.slug as c_slug, c.name as c_name, c.icon as c_icon
         FROM places p
         LEFT JOIN categories c ON p.category_id = c.id
@@ -90,6 +104,18 @@ export class PlaceRepository {
   }
 
   private mapRowToPlace(r: PlaceRow): Place {
+    let parsedImages: string[] | undefined = undefined;
+    if (r.imagesJson) {
+      try {
+        const arr = JSON.parse(r.imagesJson);
+        if (Array.isArray(arr)) {
+          parsedImages = arr.filter((x): x is string => typeof x === "string");
+        }
+      } catch {
+        // safe fallback when imagesJson is malformed
+      }
+    }
+
     return {
       id: r.id,
       slug: r.slug,
@@ -109,7 +135,11 @@ export class PlaceRepository {
       latitude: r.latitude ?? undefined,
       longitude: r.longitude ?? undefined,
       imageUrl: r.imageUrl || undefined,
+      images: parsedImages,
       mapUrl: r.mapUrl || undefined,
+      openingHours: r.openingHours || undefined,
+      phone: r.phone || undefined,
+      website: r.website || undefined,
       isFeatured: Boolean(r.isFeatured),
     };
   }

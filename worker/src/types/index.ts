@@ -5,6 +5,7 @@ export interface Env {
   AI_MODEL?: string;
   AI_BASE_URL?: string;
   AI_API_KEY?: string;
+  AI_JSON_MODE?: string;
   CORS_ALLOW_ORIGIN?: string;
 }
 
@@ -27,7 +28,11 @@ export interface Place {
   latitude?: number;
   longitude?: number;
   imageUrl?: string;
+  images?: string[];
   mapUrl?: string;
+  openingHours?: string;
+  phone?: string;
+  website?: string;
   isFeatured: boolean;
   createdAt?: string;
   updatedAt?: string;
