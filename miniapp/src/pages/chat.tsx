@@ -13,6 +13,7 @@ import {
 export const AIChatPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const placeIdParam = searchParams.get("placeId");
+  const qParam = searchParams.get("q") || (searchParams.get("articleSlug") ? `Tìm hiểu về bài viết ${searchParams.get("articleSlug")}` : null);
 
   const {
     profile,
@@ -37,6 +38,7 @@ export const AIChatPage: React.FC = () => {
   // Contextual place state
   const [contextualPlace, setContextualPlace] = useState<Place | null>(null);
   const autoSentPlaceIdRef = useRef<string | null>(null);
+  const autoSentQRef = useRef<string | null>(null);
   const notifiedInvalidPlaceIdRef = useRef<string | null>(null);
 
   // Cached map of placeId -> Place
@@ -144,6 +146,15 @@ export const AIChatPage: React.FC = () => {
       executeSendMessage(failedTurn.text, failedTurn.id);
     }
   };
+
+  // Handle article/question query param (?q=... or ?articleSlug=...) auto-send once
+  useEffect(() => {
+    if (qParam && autoSentQRef.current !== qParam) {
+      autoSentQRef.current = qParam;
+      setSearchParams({});
+      executeSendMessage(qParam);
+    }
+  }, [qParam]);
 
   // Handle contextual placeId param with P2 invalid place notice
   useEffect(() => {

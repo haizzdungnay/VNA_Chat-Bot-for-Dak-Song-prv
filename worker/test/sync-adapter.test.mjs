@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   mapCategory,
   normalizeImageUrl,
+  sanitizeHtml,
   slugify,
   transformPlaces,
   generateSeedSql
@@ -29,7 +30,18 @@ test('normalizeImageUrl handles relative CDN paths and full URLs', () => {
   const full = 'https://example.com/photo.png';
   assert.equal(normalizeImageUrl(full), full);
 
-  assert.match(normalizeImageUrl(''), /^https:\/\/static\.dggv\.edu\.vn\//);
+  // B2 requirement: zero fabricated images, empty/missing returns null
+  assert.equal(normalizeImageUrl(''), null);
+  assert.equal(normalizeImageUrl(null), null);
+});
+
+test('sanitizeHtml strips dangerous scripts, event handlers, and javascript URIs', () => {
+  const malicious = '<p>Xin chào</p><script>alert("xss")</script><img src="x" onerror="alert(1)"><a href="javascript:alert(2)">Click</a>';
+  const cleaned = sanitizeHtml(malicious);
+  assert.ok(!cleaned.includes('<script'));
+  assert.ok(!cleaned.includes('onerror'));
+  assert.ok(!cleaned.includes('javascript:'));
+  assert.ok(cleaned.includes('<p>Xin chào</p>'));
 });
 
 test('slugify cleans Vietnamese accents and appends short ID', () => {
@@ -63,6 +75,9 @@ test('transformPlaces generates 15 verified places with valid D1 schema fields',
   assert.equal(p.longitude, 107.6848);
   assert.match(p.imageUrl, /^https:\/\/static\.dggv\.edu\.vn\//);
   assert.equal(p.website, 'https://dulichdaksong.vnasw.vn/');
+  // Phase 2: openingHours must be null when not verified from upstream
+  assert.equal(p.openingHours, null);
+  assert.equal(p.sourceType, 'verified');
 });
 
 test('generateSeedSql produces valid idempotent SQLite syntax', () => {

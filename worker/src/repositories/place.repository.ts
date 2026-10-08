@@ -17,6 +17,7 @@ interface PlaceRow {
   phone: string | null;
   website: string | null;
   isFeatured: number;
+  source_type: string | null;
   c_id: string | null;
   c_slug: string | null;
   c_name: string | null;
@@ -42,6 +43,7 @@ export class PlaceRepository {
              p.phone,
              p.website,
              p.is_featured as isFeatured,
+             p.source_type,
              c.id as c_id, c.slug as c_slug, c.name as c_name, c.icon as c_icon
       FROM places p
       LEFT JOIN categories c ON p.category_id = c.id
@@ -91,6 +93,7 @@ export class PlaceRepository {
                p.phone,
                p.website,
                p.is_featured as isFeatured,
+               p.source_type,
                c.id as c_id, c.slug as c_slug, c.name as c_name, c.icon as c_icon
         FROM places p
         LEFT JOIN categories c ON p.category_id = c.id
@@ -140,6 +143,7 @@ export class PlaceRepository {
       openingHours: r.openingHours || undefined,
       phone: r.phone || undefined,
       website: r.website || undefined,
+      sourceType: (r.source_type as "verified" | "vr360") || "verified",
       isFeatured: Boolean(r.isFeatured),
     };
   }

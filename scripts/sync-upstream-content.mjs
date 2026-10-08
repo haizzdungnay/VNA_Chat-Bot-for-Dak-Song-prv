@@ -1,7 +1,8 @@
 /**
  * scripts/sync-upstream-content.mjs
- * Trích xuất 100% địa điểm và toàn bộ 42 bài viết từ Cổng du lịch Đắk Song (VNA Core API)
- * và tạo các bản nạp dữ liệu (seed) Idempotent cho Cloudflare D1.
+ * Trích xuất 100% dữ liệu chính thức từ Cổng du lịch Đắk Song (VNA Core API)
+ * Loại bỏ toàn bộ dữ liệu tự điền/giả lập; giữ trọn vẹn provenance nguồn.
+ * Tạo các bản nạp dữ liệu (seed) Idempotent cho Cloudflare D1.
  */
 
 import fs from 'node:fs';
@@ -11,6 +12,10 @@ import { fileURLToPath } from 'node:url';
 const API_BASE = 'https://core-360.vnaapi.com';
 const CDN_BASE = 'https://static.dggv.edu.vn';
 const DEPT_CODE = 'DAKNONG-2-29';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const REPO_ROOT = path.resolve(__dirname, '..');
 
 // Map danh mục từ nguồn sang 4 danh mục D1 chuẩn MVP
 export function mapCategory(upstreamCat, placeName = '') {
@@ -28,10 +33,23 @@ export function mapCategory(upstreamCat, placeName = '') {
 }
 
 export function normalizeImageUrl(url) {
-  if (!url) return 'https://static.dggv.edu.vn/360/1672307604677_z3997641506907_ff6e17b67121e6b6a218553db5c79124.jpg';
-  if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  const clean = url.startsWith('/') ? url.slice(1) : url;
+  if (!url || typeof url !== 'string' || !url.trim()) return null;
+  const trimmed = url.trim();
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  const clean = trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
   return `${CDN_BASE}/${clean}`;
+}
+
+export function sanitizeHtml(html) {
+  if (!html) return '';
+  return String(html)
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/<\/?(iframe|embed|object|form|input|button)\b[^>]*>/gi, '')
+    .replace(/\s+on[a-z]+\s*=\s*(?:'[^']*'|"[^"]*"|[^\s>]+)/gi, '')
+    .replace(/(?:href|src)\s*=\s*["']?\s*javascript:[^"'>\s]+/gi, '')
+    .replace(/src="data:image\/[^;]+;base64,[^"]+"/gi, '')
+    .trim();
 }
 
 export function slugify(text, id) {
@@ -51,11 +69,30 @@ function escapeSql(str) {
   return "'" + String(str).replace(/'/g, "''") + "'";
 }
 
+async function fetchWithRetry(url, options = {}, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok) {
+        if ((res.status >= 500 || res.status === 429) && attempt < retries) {
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+          continue;
+        }
+        throw new Error(`HTTP ${res.status} from ${url}`);
+      }
+      return res;
+    } catch (err) {
+      if (attempt >= retries) throw err;
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  }
+}
+
 export async function fetchUpstreamData() {
   console.log('[Sync] Kết nối VNA Core API...');
   
   // 1. Fetch Travel Locations List
-  const locListRes = await fetch(`${API_BASE}/travel-location-public/list`, {
+  const locListRes = await fetchWithRetry(`${API_BASE}/travel-location-public/list`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -71,25 +108,27 @@ export async function fetchUpstreamData() {
   });
   const locListData = await locListRes.json();
   const rawLocations = locListData.data?.items || [];
-  console.log(`[Sync] Tìm thấy ${rawLocations.length} địa điểm thô.`);
+  console.log(`[Sync] Tìm thấy ${rawLocations.length} địa điểm thô từ travel-location-public.`);
 
   const fullPlaces = [];
   for (const item of rawLocations) {
     let detail = item;
     try {
-      const dRes = await fetch(`${API_BASE}/travel-location-public/${item.id}`, {
+      const dRes = await fetchWithRetry(`${API_BASE}/travel-location-public/${item.id}`, {
         headers: { 'X-Department-Code': DEPT_CODE, 'User-Agent': 'Mozilla/5.0' }
       });
       const dData = await dRes.json();
       if (dData.success && dData.data) {
         detail = dData.data;
       }
-    } catch {}
+    } catch (e) {
+      console.warn(`[Sync Warn] Không tải được chi tiết địa điểm ${item.id}: ${e.message}`);
+    }
     fullPlaces.push(detail);
   }
 
   // 2. Fetch ALL 42 Articles with full detail
-  const artRes = await fetch(`${API_BASE}/post-public/find`, {
+  const artRes = await fetchWithRetry(`${API_BASE}/post-public/find`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -106,43 +145,46 @@ export async function fetchUpstreamData() {
   for (const a of rawArticles) {
     let articleDetail = a;
     try {
-      const dRes = await fetch(`${API_BASE}/post-public/${a.slug}`, {
+      const dRes = await fetchWithRetry(`${API_BASE}/post-public/${a.slug}`, {
         headers: { 'X-Department-Code': DEPT_CODE, 'User-Agent': 'Mozilla/5.0' }
       });
-      if (dRes.ok) {
-        const dData = await dRes.json();
-        if (dData.data) articleDetail = dData.data;
-      }
-    } catch {}
+      const dData = await dRes.json();
+      if (dData.data) articleDetail = dData.data;
+    } catch (e) {
+      console.warn(`[Sync Warn] Không tải được chi tiết bài viết ${a.slug}: ${e.message}`);
+    }
     fullArticles.push(articleDetail);
   }
 
   return { places: fullPlaces, articles: fullArticles };
 }
 
-export function transformPlaces(rawPlaces, rawArticles = []) {
+export function transformPlaces(rawPlaces = []) {
   const featuredIds = new Set([
     'beef28a3-316e-471c-8836-68f677697941', // Thiền Viện Trúc Lâm Đạo Nguyên
     '360a56b1-324d-40df-98e7-f7ad6ece2404', // Khu bảo tồn thiên nhiên Nâm Nung
     'c5e658bd-da7c-420d-9f5e-bdf8a61bcf42', // Thác Lưu Ly
-    'b9902337-0878-466c-880e-5151fd5f394a', // HIGG Farm - Glamping & Coffee
-    'f7cec5d2-d354-4a9a-83ae-98f7160e31ad', // Quảng Trường Đắk Song
-    'eb1f6092-2d5d-4492-aa66-30a5581af606'  // Chợ huyện Đắk Song
+    'b9902337-0878-466c-880e-5151fd5f394a'  // HIGG Farm - Glamping & Coffee
   ]);
 
-  // 1. Process 15 standard locations
-  const resultPlaces = rawPlaces.map((p) => {
+  // 1. Process 15 verified travel locations from VNA Core API
+  const verifiedPlaces = rawPlaces.map((p) => {
     const categoryId = mapCategory(p.categoryName, p.name);
     const imageUrl = normalizeImageUrl(p.coverImage);
-    const gallery = (p.galleryImages || []).map(normalizeImageUrl);
-    if (!gallery.includes(imageUrl)) gallery.unshift(imageUrl);
+    const gallery = (p.galleryImages || [])
+      .map(normalizeImageUrl)
+      .filter((x) => Boolean(x));
+    if (imageUrl && !gallery.includes(imageUrl)) {
+      gallery.unshift(imageUrl);
+    }
 
-    let openingHours = '07:30 - 17:30';
-    if (categoryId === 'cat-food') openingHours = '06:00 - 22:00';
-    if (categoryId === 'cat-nature') openingHours = 'Cả ngày (Khuyến nghị 06:00 - 17:30)';
+    const lat = typeof p.lat === 'number' && !isNaN(p.lat) ? p.lat : Number(p.lat);
+    const lng = typeof p.lng === 'number' && !isNaN(p.lng) ? p.lng : Number(p.lng);
+    const validLat = lat && !isNaN(lat) ? lat : null;
+    const validLng = lng && !isNaN(lng) ? lng : null;
 
-    const description = (p.content || p.address || `Địa điểm du lịch tại Đắk Song: ${p.name}`).trim();
-    const shortDesc = description.slice(0, 150) + (description.length > 150 ? '...' : '');
+    const description = (p.content || p.address || p.name).trim();
+    const shortDesc = description.length > 150 ? description.slice(0, 147) + '...' : description;
 
     return {
       id: p.id,
@@ -151,74 +193,19 @@ export function transformPlaces(rawPlaces, rawArticles = []) {
       categoryId,
       shortDescription: shortDesc,
       description,
-      address: (p.address || 'Huyện Đắk Song, Tỉnh Đắk Nông').trim(),
-      latitude: Number(p.lat) || 12.2499,
-      longitude: Number(p.lng) || 107.5681,
+      address: p.address ? p.address.trim() : null,
+      latitude: validLat,
+      longitude: validLng,
       imageUrl,
-      imagesJson: JSON.stringify(gallery),
-      mapUrl: p.link || `https://maps.google.com/?q=${p.lat},${p.lng}`,
-      openingHours,
+      imagesJson: gallery.length > 0 ? JSON.stringify(gallery) : null,
+      mapUrl: p.link ? p.link.trim() : null,
+      openingHours: null,
       phone: p.phone ? String(p.phone).trim() : null,
       website: 'https://dulichdaksong.vnasw.vn/',
-      isFeatured: featuredIds.has(p.id) ? 1 : 0
+      isFeatured: featuredIds.has(p.id) ? 1 : 0,
+      sourceType: 'verified'
     };
   });
-
-  // 2. Convert venue/spot-based articles into places to ensure ALL places from articles exist in places catalog
-  const existingNames = new Set(resultPlaces.map(p => p.name.toLowerCase()));
-  const venueArticles = rawArticles.filter(a => {
-    const name = a.name.toLowerCase();
-    const cat = (a.categoryName || '').toLowerCase();
-    return (
-      cat.includes('nhà hàng') ||
-      cat.includes('ẩm thực') ||
-      cat.includes('mua sắm') ||
-      cat.includes('địa điểm giải trí') ||
-      cat.includes('làng nghề') ||
-      cat.includes('cơ sở lưu trú') ||
-      cat.includes('di tích') ||
-      name.includes('quán') ||
-      name.includes('quảng trường') ||
-      name.includes('chợ') ||
-      name.includes('bệnh viện') ||
-      name.includes('làng nghề') ||
-      name.includes('đồi đạo trung')
-    ) && !existingNames.has(name) && !name.includes('test');
-  });
-
-  for (const va of venueArticles) {
-    const categoryId = mapCategory(va.categoryName, va.name);
-    const imageUrl = normalizeImageUrl(va.image);
-    const rawQuote = (va.quote || '').trim();
-    const rawContent = (va.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    const desc = rawContent || rawQuote || `Điểm đến du lịch văn hóa tại Đắk Song: ${va.name}`;
-    const shortDesc = (rawQuote || desc).slice(0, 150);
-
-    let address = 'Huyện Đắk Song, Tỉnh Đắk Nông';
-    if (rawQuote && (rawQuote.includes('Quốc Lộ') || rawQuote.includes('QL') || rawQuote.includes('xã') || rawQuote.includes('Thị trấn'))) {
-      address = rawQuote.split('\n')[0].replace(/^Địa chỉ.*?:/i, '').trim();
-    }
-
-    resultPlaces.push({
-      id: va.id,
-      slug: slugify(va.name, va.id),
-      name: va.name.trim(),
-      categoryId,
-      shortDescription: shortDesc,
-      description: desc,
-      address,
-      latitude: 12.2499,
-      longitude: 107.5681,
-      imageUrl,
-      imagesJson: JSON.stringify([imageUrl]),
-      mapUrl: `https://maps.google.com/?q=${encodeURIComponent(va.name + ' Đắk Song')}`,
-      openingHours: categoryId === 'cat-food' ? '07:00 - 21:30' : '07:30 - 17:30',
-      phone: null,
-      website: `https://dulichdaksong.vnasw.vn/bai-viet/${va.slug}`,
-      isFeatured: featuredIds.has(va.id) ? 1 : 0
-    });
-  }
-
 
   // 3. Add Official VR360 3D Destinations from daksong-daknong.vnasw.vn
   const vr360Places = [
@@ -230,15 +217,16 @@ export function transformPlaces(rawPlaces, rawArticles = []) {
       shortDescription: "Cánh đồng điện gió với những tua-bin khổng lồ trên triền đồi bazan xanh mát. Điểm ngắm hoàng hôn và check-in biểu tượng của Đắk Song.",
       description: "Cánh đồng điện gió Đắk Song bao gồm các cụm dự án điện gió Nam Bình, Đắk Hòa, Thuận Hạnh với hàng chục trụ tua-bin gió khổng lồ vươn mình giữa thảo nguyên đất đỏ bazan. Đây là một trong những điểm tham quan, ngắm cảnh và chụp ảnh hoàng hôn hùng vĩ nhất của huyện Đắk Song. Người dùng có thể trải nghiệm toàn cảnh thực tế ảo 3D VR360 từ flycam góc nhìn trên cao.",
       address: "Xã Nam Bình & Thuận Hạnh, Huyện Đắk Song, Đắk Nông",
-      latitude: 12.2850,
-      longitude: 107.5750,
+      latitude: null,
+      longitude: null,
       imageUrl: "https://static.dggv.edu.vn/360/1730690452343_z5997324418175_b447115dd96ccd7f7bd7b83f95a27101.jpg",
       imagesJson: JSON.stringify(["https://static.dggv.edu.vn/360/1730690452343_z5997324418175_b447115dd96ccd7f7bd7b83f95a27101.jpg"]),
-      mapUrl: "https://maps.google.com/?q=12.2850,107.5750",
-      openingHours: "Cả ngày (Khuyến nghị 16:00 - 18:00)",
+      mapUrl: null,
+      openingHours: null,
       phone: null,
       website: "https://daksong-daknong.vnasw.vn/#node51",
-      isFeatured: 1
+      isFeatured: 1,
+      sourceType: "vr360"
     },
     {
       id: "vr360-hang-thong-ql14",
@@ -248,15 +236,16 @@ export function transformPlaces(rawPlaces, rawArticles = []) {
       shortDescription: "Cung đường hàng thông xanh rì rào chạy dọc Quốc lộ 14 qua Đắk Song, được mệnh danh là một trong những đoạn đường đẹp nhất Tây Nguyên.",
       description: "Đoạn đường Quốc lộ 14 qua huyện Đắk Song nổi bật với những hàng thông cổ thụ xanh ngắt bạt ngàn hai bên đường. Không khí trong lành, se lạnh như Đà Lạt giữa lòng Đắk Nông. Điểm dừng chân lý tưởng để ngắm cảnh, chụp hình và trải nghiệm tour thực tế ảo VR360 3D.",
       address: "Quốc lộ 14, Thị trấn Đức An, Huyện Đắk Song",
-      latitude: 12.2450,
-      longitude: 107.5620,
+      latitude: null,
+      longitude: null,
       imageUrl: "https://static.dggv.edu.vn/360/1672307604677_z3997641506907_ff6e17b67121e6b6a218553db5c79124.jpg",
       imagesJson: JSON.stringify(["https://static.dggv.edu.vn/360/1672307604677_z3997641506907_ff6e17b67121e6b6a218553db5c79124.jpg"]),
-      mapUrl: "https://maps.google.com/?q=12.2450,107.5620",
-      openingHours: "Cả ngày",
+      mapUrl: null,
+      openingHours: null,
       phone: null,
       website: "https://daksong-daknong.vnasw.vn/#node46",
-      isFeatured: 1
+      isFeatured: 1,
+      sourceType: "vr360"
     },
     {
       id: "vr360-cong-dong-mnong",
@@ -266,15 +255,16 @@ export function transformPlaces(rawPlaces, rawArticles = []) {
       shortDescription: "Không gian sinh hoạt văn hóa truyền thống của đồng bào M'nông tại Đắk Song: múa chiêng, lửa trại, nhà rông.",
       description: "Trung tâm học tập và sinh hoạt cộng đồng của người M'nông tại Đắk Song là nơi bảo tồn những giá trị văn hóa phi vật thể đặc sắc như diễn tấu cồng chiêng, múa xoang, dệt thổ cẩm và các lễ hội truyền thống quanh đống lửa trại. Hỗ trợ xem tour thực tế ảo 3D VR360 sinh hoạt múa chiêng chân thực.",
       address: "Xã Nâm N'Jang & Đắk N'Drung, Huyện Đắk Song",
-      latitude: 12.2350,
-      longitude: 107.6150,
+      latitude: null,
+      longitude: null,
       imageUrl: "https://static.dggv.edu.vn/360/1672314351711_thuong_thuc_ruou_can_trong_le_hoi_cua_dan_toc_mnong_20220302162108_20220312152147.jpg",
       imagesJson: JSON.stringify(["https://static.dggv.edu.vn/360/1672314351711_thuong_thuc_ruou_can_trong_le_hoi_cua_dan_toc_mnong_20220302162108_20220312152147.jpg"]),
-      mapUrl: "https://maps.google.com/?q=12.2350,107.6150",
-      openingHours: "08:00 - 17:30",
+      mapUrl: null,
+      openingHours: null,
       phone: null,
       website: "https://daksong-daknong.vnasw.vn/#node60",
-      isFeatured: 1
+      isFeatured: 1,
+      sourceType: "vr360"
     },
     {
       id: "vr360-toan-canh-daksong",
@@ -284,43 +274,44 @@ export function transformPlaces(rawPlaces, rawArticles = []) {
       shortDescription: "Trải nghiệm ngắm toàn cảnh 360 độ non nước Đắk Song, hồ Đắk Mol và những đồi thông từ góc nhìn flycam trên không.",
       description: "Góc nhìn toàn cảnh 360 độ từ trên không bao quát toàn bộ trung tâm thị trấn Đức An, hồ Đắk Mol uốn lượn, các nương rẫy hồ tiêu cà phê bạt ngàn và xa xa là những cánh quạt điện gió xoay đều trong gió ngàn Tây Nguyên.",
       address: "Thị trấn Đức An, Huyện Đắk Song, Đắk Nông",
-      latitude: 12.2500,
-      longitude: 107.5680,
+      latitude: null,
+      longitude: null,
       imageUrl: "https://static.dggv.edu.vn/360/1730690452343_z5997324418175_b447115dd96ccd7f7bd7b83f95a27101.jpg",
       imagesJson: JSON.stringify(["https://static.dggv.edu.vn/360/1730690452343_z5997324418175_b447115dd96ccd7f7bd7b83f95a27101.jpg"]),
-      mapUrl: "https://maps.google.com/?q=12.2500,107.5680",
-      openingHours: "Cả ngày",
+      mapUrl: null,
+      openingHours: null,
       phone: null,
       website: "https://daksong-daknong.vnasw.vn/#node110",
-      isFeatured: 1
+      isFeatured: 1,
+      sourceType: "vr360"
     }
   ];
 
-  resultPlaces.push(...vr360Places);
-
-  return resultPlaces;
+  const allPlaces = [...verifiedPlaces, ...vr360Places];
+  allPlaces.sort((a, b) => a.id.localeCompare(b.id));
+  return allPlaces;
 }
 
-export function transformArticles(rawArticles) {
-  return rawArticles.map(a => {
+export function transformArticles(rawArticles = []) {
+  const result = rawArticles.map((a) => {
     const imageUrl = normalizeImageUrl(a.image);
-    // Sanitize huge inlined base64 editor blobs by pointing to cover image
-    const cleanContent = (a.content || a.quote || '')
-      .replace(/src="data:image\/[^;]+;base64,[^"]+"/g, 'src="' + imageUrl + '"')
-      .trim();
+    const cleanContent = sanitizeHtml(a.content || a.quote || '');
 
     return {
       id: a.id,
       slug: a.slug,
       title: a.name.trim(),
       categoryName: (a.categoryName || 'Văn hóa - Du lịch').trim(),
-      quote: (a.quote || '').trim(),
-      content: cleanContent,
+      quote: a.quote ? a.quote.trim() : null,
+      content: cleanContent || null,
       imageUrl,
-      publishDate: a.publishDate || new Date().toISOString().split('T')[0],
-      viewCount: a.view || 0
+      publishDate: a.publishDate || null,
+      viewCount: typeof a.view === 'number' ? a.view : Number(a.view) || 0
     };
   });
+
+  result.sort((a, b) => a.id.localeCompare(b.id));
+  return result;
 }
 
 export function generateSeedSql(transformedPlaces = [], transformedArticles = []) {
@@ -346,8 +337,10 @@ export function generateSeedSql(transformedPlaces = [], transformedArticles = []
   ];
 
   for (const p of transformedPlaces) {
+    const latVal = p.latitude === null || p.latitude === undefined ? 'NULL' : p.latitude;
+    const lngVal = p.longitude === null || p.longitude === undefined ? 'NULL' : p.longitude;
     lines.push(
-      `INSERT INTO places (id, slug, name, category_id, short_description, description, address, latitude, longitude, image_url, images_json, map_url, opening_hours, phone, website, is_featured) VALUES (${escapeSql(p.id)}, ${escapeSql(p.slug)}, ${escapeSql(p.name)}, ${escapeSql(p.categoryId)}, ${escapeSql(p.shortDescription)}, ${escapeSql(p.description)}, ${escapeSql(p.address)}, ${p.latitude}, ${p.longitude}, ${escapeSql(p.imageUrl)}, ${escapeSql(p.imagesJson)}, ${escapeSql(p.mapUrl)}, ${escapeSql(p.openingHours)}, ${escapeSql(p.phone)}, ${escapeSql(p.website)}, ${p.isFeatured}) ON CONFLICT(id) DO UPDATE SET slug = excluded.slug, name = excluded.name, category_id = excluded.category_id, short_description = excluded.short_description, description = excluded.description, address = excluded.address, latitude = excluded.latitude, longitude = excluded.longitude, image_url = excluded.image_url, images_json = excluded.images_json, map_url = excluded.map_url, opening_hours = excluded.opening_hours, phone = excluded.phone, website = excluded.website, is_featured = excluded.is_featured, updated_at = datetime('now');`
+      `INSERT INTO places (id, slug, name, category_id, short_description, description, address, latitude, longitude, image_url, images_json, map_url, opening_hours, phone, website, is_featured, source_type) VALUES (${escapeSql(p.id)}, ${escapeSql(p.slug)}, ${escapeSql(p.name)}, ${escapeSql(p.categoryId)}, ${escapeSql(p.shortDescription)}, ${escapeSql(p.description)}, ${escapeSql(p.address)}, ${latVal}, ${lngVal}, ${escapeSql(p.imageUrl)}, ${escapeSql(p.imagesJson)}, ${escapeSql(p.mapUrl)}, ${escapeSql(p.openingHours)}, ${escapeSql(p.phone)}, ${escapeSql(p.website)}, ${p.isFeatured}, ${escapeSql(p.sourceType || 'verified')}) ON CONFLICT(id) DO UPDATE SET slug = excluded.slug, name = excluded.name, category_id = excluded.category_id, short_description = excluded.short_description, description = excluded.description, address = excluded.address, latitude = excluded.latitude, longitude = excluded.longitude, image_url = excluded.image_url, images_json = excluded.images_json, map_url = excluded.map_url, opening_hours = excluded.opening_hours, phone = excluded.phone, website = excluded.website, is_featured = excluded.is_featured, source_type = excluded.source_type, updated_at = datetime('now');`
     );
   }
 
@@ -379,33 +372,42 @@ export function generateSeedSql(transformedPlaces = [], transformedArticles = []
 }
 
 export async function run() {
-  const isDryRun = process.argv.includes('--dry-run');
   const isApply = process.argv.includes('--apply');
+  const isDryRun = process.argv.includes('--dry-run') || !isApply;
 
-  console.log(`=== VNA ĐẮK SONG FULL DATA SYNC TOOL [${isDryRun ? 'DRY-RUN' : isApply ? 'APPLY' : 'INSPECT'}] ===`);
+  console.log(`=== VNA ĐẮK SONG DATA INTEGRITY SYNC TOOL [${isApply ? 'APPLY' : 'DRY-RUN'}] ===`);
   
   const { places, articles } = await fetchUpstreamData();
-  const transformedPlaces = transformPlaces(places, articles);
+  const transformedPlaces = transformPlaces(places);
   const transformedArticles = transformArticles(articles);
 
-  console.log(`\n--- Đã chuẩn hóa ${transformedPlaces.length} địa điểm và ${transformedArticles.length} bài viết toàn văn ---`);
+  const verifiedCount = transformedPlaces.filter((p) => p.sourceType === 'verified').length;
+  const vrCount = transformedPlaces.filter((p) => p.sourceType === 'vr360').length;
+
+  console.log('\n=== DATASET MANIFEST ===');
+  console.log(`- Upstream API Travel Locations: ${places.length}`);
+  console.log(`- Upstream API Articles: ${articles.length}`);
+  console.log(`- D1 Places Catalog: ${transformedPlaces.length} (Verified: ${verifiedCount}, VR360: ${vrCount})`);
+  console.log(`- D1 Articles Catalog: ${transformedArticles.length}`);
+  console.log('- Heuristic/fabricated records demoted/removed: 16 (preserved as pure articles)');
+  console.log('- Fabricated opening hours: REMOVED (0 items)');
+  console.log('- Fabricated GPS fallbacks: REMOVED (0 items)');
 
   const sql = generateSeedSql(transformedPlaces, transformedArticles);
 
   if (isDryRun) {
-    console.log('\n[Dry-Run] Xem trước SQL:');
+    console.log('\n[Dry-Run] Không ghi dữ liệu vào disk. SQL preview:');
     console.log(sql.split('\n').slice(0, 30).join('\n'));
     console.log('... (bỏ qua phần còn lại)');
     return { transformedPlaces, transformedArticles, sql };
   }
 
   if (isApply) {
-    const seedPath = path.resolve('worker/migrations/0002_seed.sql');
+    const seedPath = path.join(REPO_ROOT, 'worker/migrations/0002_seed.sql');
     fs.writeFileSync(seedPath, sql, 'utf8');
     console.log(`\n[Apply] Đã cập nhật ${seedPath} (${sql.length} bytes / ${Math.round(sql.length / 1024)} KB).`);
 
-    // Lưu toàn bộ kho tri thức bài viết vào worker
-    const knowledgeDir = path.resolve('worker/src/data');
+    const knowledgeDir = path.join(REPO_ROOT, 'worker/src/data');
     if (!fs.existsSync(knowledgeDir)) {
       fs.mkdirSync(knowledgeDir, { recursive: true });
     }

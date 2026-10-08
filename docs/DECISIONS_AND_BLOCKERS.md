@@ -35,8 +35,17 @@
   - Tiết kiệm dung lượng lưu trữ Cloudflare R2 và không tốn công chuyển tải ảnh.
 
 ### ADR-06: Cấu Hình Mô Hình AI Google Gemini
-- **Bối cảnh:** Tích hợp mô hình AI phù hợp nhất với du lịch địa phương.
-- **Quyết định:** Sử dụng `gemini-3.8-flash` với `reasoning_effort: "low"` qua giao thức OpenAI-compatible. Tắt cờ JSON gốc ở request upstream (do 3.8 flash gây lỗi 503 khi bật cờ này) và bóc tách JSON bằng biểu thức chính quy Regex kết hợp fallback văn bản thuần.
+ - **Bối cảnh:** Tích hợp mô hình AI phù hợp nhất với du lịch địa phương.
+ - **Quyết định:** Sử dụng `gemini-2.5-flash-lite` với `reasoning_effort: "low"` qua giao thức OpenAI-compatible endpoint của Google Generative Language (`https://generativelanguage.googleapis.com/v1beta/openai`).
+ - **Lý do kỹ thuật:** Mô hình `gemini-2.5-flash` trên gói Free-tier của Google bị áp hạn ngạch tối đa 20 lượt gọi/ngày (`limit: 20 per day`), dẫn đến mã lỗi 429 RESOURCE_EXHAUSTED. Trong khi đó, `gemini-2.5-flash-lite` có hạn ngạch khả dụng dồi dào, phản hồi cực nhanh (~3000ms), hỗ trợ thinking/reasoning_effort "low" và trả lời tiếng Việt chính xác 100%. Tắt cờ JSON gốc (`AI_JSON_MODE="false"`) và bóc tách JSON an toàn bằng parser Regex + fallback.
+
+### ADR-07: Chuẩn Hóa Tính Toàn Vẹn Dữ Liệu & Nguồn Gốc (Data Integrity & Provenance - Phase 2)
+ - **Bối cảnh:** Yêu cầu nghiêm ngặt không tự bịa đặt giờ mở cửa, tọa độ, địa chỉ hoặc mô tả giả.
+ - **Quyết định:**
+   1. Chỉ giữ đúng 15 địa điểm xác minh từ API VNA (`source_type = "verified"`).
+   2. Bổ sung 4 điểm đến VR360 từ tour thực tế ảo Đắk Song với phân loại `source_type = "vr360"`, tọa độ GPS và giờ mở cửa để `NULL`.
+   3. Bỏ toàn bộ 16 bản ghi heuristic từng bị ép từ bài viết thành địa điểm.
+   4. Giờ mở cửa không có trong nguồn upstream thì để `NULL`, giao diện FE chỉ render khi có dữ liệu.
 
 ---
 

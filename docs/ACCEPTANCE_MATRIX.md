@@ -32,9 +32,9 @@
 | **TC-AI-03** | Chống ảo giác (Anti-Hallucination)| Hỏi về một địa điểm hoàn toàn bịa đặt | AI trả lời rõ ràng là không có đủ thông tin, không tự sáng tác | **ĐÃ ĐẠT (Local)** | Đã test: từ chối bịa địa điểm ngoài D1 | P0 |
 | **TC-DATA-01**| Nguồn dữ liệu VNA | Kết nối VNA Core API `core-360.vnaapi.com` | Trích xuất thành công 15 địa điểm và 42 bài viết thật của Đắk Song | **ĐÃ ĐẠT (Live)** | Đã test trực tiếp từ isolate script | P0 |
 | **TC-DATA-02**| Ảnh CDN Du lịch | Tải ảnh từ `static.dggv.edu.vn` | Ảnh trả về HTTP 200, hiển thị mượt mà trên WebView | **ĐÃ ĐẠT (Live)** | Đã kiểm tra HEAD request: HTTP 200, 95KB | P0 |
-| **TC-DATA-03**| Đồng bộ Idempotent | Chạy lệnh sync dữ liệu lặp lại nhiều lần | Không tạo bản ghi trùng lặp, cập nhật đúng nếu nguồn thay đổi | **Chờ Phase 2** | Sẽ kiểm thử khi tạo script sync | P0 |
+| **TC-DATA-03**| Đồng bộ Idempotent | Chạy lệnh sync dữ liệu lặp lại nhiều lần | Không tạo bản ghi trùng lặp, cập nhật đúng nếu nguồn thay đổi | **ĐÃ ĐẠT (Local)** | scripts/sync-upstream-content.mjs (19 places, 42 articles) | P0 |
 | **TC-SEC-01** | Bí mật API Key | Kiểm tra commit history và file tĩnh | Không có API Key Gemini hay token nào bị commit lên git | **ĐÃ ĐẠT (Repo)** | Đã kiểm tra: `.dev.vars` nằm trong `.gitignore` | P0 |
-| **TC-SEC-02** | Rate Limiting | Gửi 50 request liên tục vào `/api/chat` | Kích hoạt giới hạn tốc độ 429 bảo vệ hệ thống | **Chờ Phase 4** | Sẽ hiện thực ở Phase 4 | P1 |
+| **TC-SEC-02** | Rate Limiting & DoS Guard | Gửi > 30 request chat liên tục hoặc payload > 10KB | Trả về 429 (Retry-After) và 413 (Payload Too Large) | **ĐÃ ĐẠT (Local)** | worker/test/security.test.mjs (PASS) | P0 |
 | **TC-STG-01** | Cloudflare D1 Remote | Cấu hình `database_id` thật và chạy migration | Cơ sở dữ liệu đám mây lưu trữ đầy đủ 15 địa điểm chính thức | **Chờ Phase 6** | Cần tài khoản Cloudflare từ anh trai | P0 |
 | **TC-STG-02** | Zalo Mini App QR | Quét mã QR bản thử nghiệm trên Zalo điện thoại | Khởi chạy ứng dụng trơn tru trên cả iOS và Android thật | **Chờ Phase 6** | Cần đưa lên Zalo Mini App Center | P0 |
 

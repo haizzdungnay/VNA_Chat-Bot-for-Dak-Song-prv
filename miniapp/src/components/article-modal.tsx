@@ -1,5 +1,6 @@
 import React from "react";
 import { useNavigate } from "zmp-ui";
+import { sanitizeArticleHtml } from "../utils/sanitize";
 import type { Article } from "../types";
 
 interface ArticleModalProps {
@@ -13,8 +14,13 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({ article, onClose }) 
 
   const handleAskAI = () => {
     onClose();
-    navigate(`/chat?q=${encodeURIComponent(`Tìm hiểu thêm về "${article.title}"`)}`);
+    navigate(`/chat?q=${encodeURIComponent(`Tìm hiểu thêm về "${article.title}"`)}&articleSlug=${encodeURIComponent(article.slug)}`);
   };
+
+  const sanitizedContent = React.useMemo(() => {
+    if (!article.content) return "<p>Nội dung đang được cập nhật...</p>";
+    return sanitizeArticleHtml(article.content);
+  }, [article.content]);
 
   return (
     <div
@@ -141,7 +147,7 @@ export const ArticleModal: React.FC<ArticleModalProps> = ({ article, onClose }) 
               color: "var(--color-text-primary, #1f2937)",
             }}
             dangerouslySetInnerHTML={{
-              __html: article.content || "<p>Nội dung đang được cập nhật...</p>",
+              __html: sanitizedContent,
             }}
           />
 

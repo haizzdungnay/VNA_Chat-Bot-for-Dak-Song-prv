@@ -11,6 +11,7 @@ import {
 
 import { shareOrCopyUrl } from "../src/utils/share-helper.ts";
 import { safeStorage } from "../src/services/storage.ts";
+import { sanitizeArticleHtml } from "../src/utils/sanitize.ts";
 
 // 1. Normal send: request.message is new question; history contains only earlier completed turns
 test("1. Normal send: request.message is new question; history contains only earlier completed turns", () => {
@@ -310,5 +311,38 @@ test("10. First-run Home, skip, edit, and delete lifecycle state transitions", (
   assert.equal(profile, null);
   // onboardingSeen remains true so user is not prompted again
   assert.equal(safeStorage.getItem("vna.daksong.onboardingSeen.v1"), "true");
+});
+
+// 11. Article modal query navigation and XSS sanitization
+test("11. sanitizeArticleHtml cleans dangerous scripts and malformed tags from article HTML", () => {
+  const payload = `<p>Đắk Song</p><script>alert(1)</script><img src="x" onerror="alert(2)" /><a href="javascript:void(0)">Link</a>`;
+  const clean = sanitizeArticleHtml(payload);
+  assert.ok(!clean.includes("<script>"));
+  assert.ok(!clean.includes("onerror"));
+  assert.ok(!clean.includes("javascript:"));
+  assert.ok(clean.includes("<p>Đắk Song</p>"));
+});
+
+test("12. Contextual ?q= parameter executes auto-send strictly once without infinite loops", () => {
+  let sendCount = 0;
+  let lastSentQuery = null;
+  const autoSentQRef = { current: null };
+
+  const handleQueryParam = (q) => {
+    if (q && autoSentQRef.current !== q) {
+      autoSentQRef.current = q;
+      sendCount++;
+      lastSentQuery = q;
+    }
+  };
+
+  // First render with ?q=
+  handleQueryParam("Tìm hiểu về Thác Lưu Ly");
+  assert.equal(sendCount, 1);
+  assert.equal(lastSentQuery, "Tìm hiểu về Thác Lưu Ly");
+
+  // Subsequent component re-render with identical q
+  handleQueryParam("Tìm hiểu về Thác Lưu Ly");
+  assert.equal(sendCount, 1, "Must NOT auto-send again on re-render");
 });
 

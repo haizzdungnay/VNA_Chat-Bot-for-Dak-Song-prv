@@ -6,25 +6,29 @@ export function getCorsHeaders(env?: Env): Record<string, string> {
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Max-Age": "86400",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
   };
 }
 
-export function jsonResponse<T>(data: T, status = 200, env?: Env): Response {
+export function jsonResponse<T>(data: T, status = 200, env?: Env, extraHeaders?: Record<string, string>): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       ...getCorsHeaders(env),
+      ...(extraHeaders || {}),
     },
   });
 }
 
-export function errorResponse(message: string, status = 400, env?: Env): Response {
+export function errorResponse(message: string, status = 400, env?: Env, extraHeaders?: Record<string, string>): Response {
   return new Response(JSON.stringify({ error: message, status }), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       ...getCorsHeaders(env),
+      ...(extraHeaders || {}),
     },
   });
 }

@@ -76,6 +76,7 @@ Xây dựng và hoàn thiện trọn vẹn **Khung ứng dụng MVP** cho Trợ 
 ---
 
 ### PHASE 2: Xây Dựng Công Cụ Đồng Bộ & Nạp Dữ Liệu D1 Thật (Dự kiến: 1 ngày làm việc)
+*(Trạng thái: ĐÃ HOÀN THÀNH — 19 Places, 42 Articles, 0 Dữ liệu bịa, Migration 0002/0003)*
 - **Mục tiêu:** Viết mã nguồn kịch bản đồng bộ tự động và chuyển đổi dữ liệu thành seed D1 chính thức.
 - **Nhiệm vụ cụ thể:**
   1. Tạo kịch bản `scripts/sync-upstream-content.mjs`:
@@ -91,6 +92,7 @@ Xây dựng và hoàn thiện trọn vẹn **Khung ứng dụng MVP** cho Trợ 
 ---
 
 ### PHASE 3: Kiểm Thử Đầu-Cuối Chat AI & Thẻ Địa Điểm Trên Dữ Liệu Thật (Dự kiến: 1 ngày làm việc)
+*(Trạng thái: ĐÃ HOÀN THÀNH — Live Gemini 2.5 Flash Lite E2E T1-T6 đạt 100%, ArticleModal -> Chat q link)*
 - **Mục tiêu:** Khép kín luồng tương tác thực tế giữa người dùng, FE, Worker và Google Gemini AI.
 - **Nhiệm vụ cụ thể:**
   1. Nạp ngữ cảnh bài viết và danh mục thật vào System Prompt của Worker.
@@ -105,6 +107,7 @@ Xây dựng và hoàn thiện trọn vẹn **Khung ứng dụng MVP** cho Trợ 
 ---
 
 ### PHASE 4: Gia Cố An Ninh Backend & Tối Ưu Hóa (Dự kiến: 0.5 - 1 ngày làm việc)
+*(Trạng thái: ĐÃ HOÀN THÀNH — 30 req/min Rate Limiting, 10KB Body Guard 413, Security Headers nosniff/DENY)*
 - **Mục tiêu:** Bảo vệ API khỏi lạm dụng và hoàn thiện các đường truyền lỗi mạng.
 - **Nhiệm vụ cụ thể:**
   1. Tích hợp cơ chế Rate Limiting đơn giản trên Worker cho route `/api/chat` (chống spam request làm cạn hạn mức Gemini).

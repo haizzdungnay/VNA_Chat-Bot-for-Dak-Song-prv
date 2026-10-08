@@ -23,6 +23,7 @@ export interface Place {
   name: string;
   categoryId: string;
   category?: Category;
+  sourceType?: "verified" | "vr360";
   shortDescription: string;
   description: string;
   address?: string;

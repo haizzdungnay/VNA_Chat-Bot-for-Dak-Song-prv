@@ -2,7 +2,7 @@
   "app": {
     "title": "Du lịch Đắk Song",
     "headerTitle": "Du lịch Đắk Song",
-    "headerColor": "#0068FF",
+    "headerColor": "#1F5D42",
     "textColor": "white",
     "statusBar": "transparent",
     "leftButton": "none"

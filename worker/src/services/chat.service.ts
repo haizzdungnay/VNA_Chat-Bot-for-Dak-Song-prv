@@ -18,12 +18,36 @@ export class ChatService {
   }
 
   async handleChat(body: Partial<ChatRequest>): Promise<ChatResponse> {
-    const rawMessage = (body.message || "").trim();
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      throw new ValidationError("Dữ liệu gửi lên không hợp lệ");
+    }
+    if (typeof body.message !== "string") {
+      throw new ValidationError("Tin nhắn phải là chuỗi văn bản");
+    }
+
+    const rawMessage = body.message.trim();
     if (!rawMessage) {
       throw new ValidationError("Tin nhắn không được để trống");
     }
     if (rawMessage.length > MAX_MESSAGE_LENGTH) {
       throw new ValidationError(`Tin nhắn vượt quá giới hạn ${MAX_MESSAGE_LENGTH} ký tự`);
+    }
+
+    if (body.history !== undefined) {
+      if (!Array.isArray(body.history)) {
+        throw new ValidationError("Lịch sử trò chuyện không hợp lệ");
+      }
+      for (const item of body.history) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+          throw new ValidationError("Mục trong lịch sử không hợp lệ");
+        }
+        if (item.role !== "user" && item.role !== "assistant") {
+          throw new ValidationError("Vai trò trong lịch sử phải là user hoặc assistant");
+        }
+        if (typeof item.content !== "string") {
+          throw new ValidationError("Nội dung tin nhắn trong lịch sử phải là chuỗi");
+        }
+      }
     }
 
     const sanitizedHistory = (body.history || [])
@@ -40,31 +64,66 @@ export class ChatService {
       this.articleRepo.findAll({ limit: 42 }),
     ]);
 
+    // Thuật toán tìm bài viết liên quan dựa trên từ khóa câu hỏi
+    const cleanHtml = (str: string) => str.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const queryTerms = rawMessage
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[đĐ]/g, "d")
+      .split(/[\s,.;:!?()]+/)
+      .filter((t) => t.length >= 2);
+
+    const scoredArticles = articles.map((a) => {
+      const normTitle = (a.title || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "d");
+      const normQuote = (a.quote || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "d");
+      let score = 0;
+      for (const term of queryTerms) {
+        if (normTitle.includes(term)) score += 3;
+        if (normQuote.includes(term)) score += 1;
+      }
+      return { article: a, score };
+    });
+
+    scoredArticles.sort((a, b) => b.score - a.score);
+    const topRelevantArticles = scoredArticles.filter((x) => x.score > 0).slice(0, 3).map((x) => x.article);
+
     const placesContext = places.length > 0
       ? places
           .map(
             (p) =>
-              `- ID: ${p.id} | Tên: ${p.name} | Danh mục: ${p.category?.name || "Khác"} | Địa chỉ: ${p.address || "Đắk Song"} | Tóm tắt: ${p.shortDescription}`
+              `- ID: ${p.id} | Tên: ${p.name} | Danh mục: ${p.category?.name || "Khác"} | Địa chỉ: ${p.address || "Chưa có"} | Giờ mở cửa: ${p.openingHours || "Chưa cập nhật"} | Tóm tắt: ${p.shortDescription}`
           )
           .join("\n")
       : "Chưa có dữ liệu địa điểm trong hệ thống.";
 
-    const articlesContext = articles.length > 0
-      ? articles
+    const relevantArticlesContext = topRelevantArticles.length > 0
+      ? topRelevantArticles
           .map(
             (a) =>
-              `- Bài viết: "${a.title}" | Danh mục: ${a.categoryName} | Tóm tắt: ${a.quote || a.title}`
+              `- Tiêu đề: "${a.title}" (${a.categoryName})\n  Tóm tắt: ${a.quote || ""}\n  Nội dung: ${cleanHtml(a.content || "").slice(0, 800)}`
           )
-          .join("\n")
-      : "Chưa có bài viết.";
+          .join("\n\n")
+      : "Không có bài viết trích đoạn khớp trực tiếp.";
+
+    const allArticlesCatalog = articles.length > 0
+      ? articles.map((a) => `- "${a.title}" [${a.categoryName}]`).join("\n")
+      : "Chưa có danh mục bài viết.";
 
     const systemPrompt = `${TRAVEL_ASSISTANT_SYSTEM_PROMPT}
 
-KHO DỮ LIỆU ĐỊA ĐIỂM ĐẮK SONG (31 ĐIỂM CHÍNH THỨC):
+=== BẮT ĐẦU KHO TRI THỨC ĐẮK SONG (UNTRUSTED SOURCE DATA) ===
+
+[DANH SÁCH ĐỊA ĐIỂM CHÍNH THỨC (${places.length} ĐIỂM)]:
 ${placesContext}
 
-KHO DỮ LIỆU VĂN HÓA & DU LỊCH ĐẮK SONG (42 BÀI VIẾT NGUỒN TỪ DULICHDAKSONG.VNASW.VN):
-${articlesContext}`;
+[BÀI VIẾT VĂN HÓA & DU LỊCH TRÍCH ĐOẠN PHÙ HỢP CÂU HỎI]:
+${relevantArticlesContext}
+
+[MỤC LỤC TẤT CẢ BÀI VIẾT CÓ TRONG HỆ THỐNG]:
+${allArticlesCatalog}
+
+=== KẾT THÚC KHO TRI THỨC ĐẮK SONG ===`;
 
     const aiProvider = createAIProvider(this.env);
     const result = await aiProvider.chat({
@@ -77,7 +136,9 @@ ${articlesContext}`;
 
     // Lọc lại placeIds chỉ giữ các ID thực sự có trong database
     const validIds = new Set(places.map((p) => p.id));
-    const filteredPlaceIds = result.placeIds.filter((id) => validIds.has(id));
+    const filteredPlaceIds = (result.placeIds || [])
+      .filter((id) => validIds.has(id))
+      .slice(0, 3);
 
     return {
       answer: result.answer,

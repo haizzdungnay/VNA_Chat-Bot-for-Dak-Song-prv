@@ -25,6 +25,12 @@ Qua rà soát trực tiếp mã nguồn bundle (`_app-90855a6430a599ee.js`, `175
      `https://static.dggv.edu.vn/360/{tên_tệp}`.
    - Ảnh cho phép truy cập công khai HTTP 200, tốc độ tải nhanh và hiển thị tương thích tốt trên Zalo WebView.
 
+4. **Quy tắc Kiểm Soát Tính Toàn Vẹn Dữ Liệu (Data Integrity & Provenance - Phase 2):**
+   - **15 Địa điểm Verified:** Trích xuất từ `travel-location-public/list`, có GPS thực, địa chỉ thực từ UBND huyện Đắk Song.
+   - **4 Điểm Đến VR360 Showcase:** Trích xuất từ tour thực tế ảo `https://daksong-daknong.vnasw.vn/` (`#node51`, `#node46`, `#node60`, `#node110`), phân loại rõ `source_type = "vr360"`, tọa độ GPS và giờ mở cửa để `NULL` do tour VR không cung cấp GPS điểm.
+   - **42 Bài Viết Toàn Văn:** Lưu trữ trong bảng `articles` và `articles-knowledge.json`, được vệ sinh XSS an toàn.
+   - **Loại bỏ dữ liệu tự điền:** Bỏ hoàn toàn 16 bản ghi địa điểm heuristic suy ra từ bài viết (có tọa độ giả 12.2499 và giờ mở cửa tự tạo). Bỏ toàn bộ giờ mở cửa mặc định 07:30-17:30. Thiếu là `NULL`.
+
 ---
 
 ## 2. DANH MỤC CÁC ENDPOINT CÔNG KHAI ĐÃ XÁC MINH (VERIFIED PUBLIC APIS)
