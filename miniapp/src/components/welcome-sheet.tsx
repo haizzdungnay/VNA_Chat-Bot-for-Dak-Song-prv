@@ -12,6 +12,7 @@ export const WelcomePersonalizationSheet: React.FC = () => {
     deleteProfile,
     dismissOnboarding,
     onboardingSeen,
+    isStoragePersistent,
   } = useApp();
 
   const isEditing = Boolean(profile) || onboardingSeen;
@@ -118,6 +119,29 @@ export const WelcomePersonalizationSheet: React.FC = () => {
               </p>
             </div>
           </div>
+
+          {/* Transparent notice if storage is only in-memory */}
+          {!isStoragePersistent && (
+            <div
+              style={{
+                padding: "8px 12px",
+                borderRadius: "var(--radius-sm)",
+                backgroundColor: "var(--color-ochre-bg)",
+                border: "1px solid var(--color-ochre-border)",
+                fontSize: 12,
+                color: "var(--color-ochre)",
+                marginBottom: 14,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                info
+              </span>
+              <span>Lưu ý: Môi trường này chỉ lưu thông tin trong phiên truy cập hiện tại.</span>
+            </div>
+          )}
 
           {/* Form Fields */}
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>

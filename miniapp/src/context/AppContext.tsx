@@ -29,6 +29,7 @@ interface AppContextValue {
 
   toastMessage: string | null;
   showToast: (msg: string) => void;
+  isStoragePersistent: boolean;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -102,16 +103,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     safeStorage.setItem(STORAGE_KEY_THEME, newTheme);
   }, []);
 
-  // Show welcome sheet on first visit once ready
-  useEffect(() => {
-    if (!onboardingSeen) {
-      const timer = setTimeout(() => {
-        setIsWelcomeSheetOpen(true);
-      }, 350);
-      return () => clearTimeout(timer);
-    }
-  }, [onboardingSeen]);
-
   const dismissOnboarding = useCallback(() => {
     setOnboardingSeen(true);
     safeStorage.setItem(STORAGE_KEY_ONBOARDING_SEEN, "true");
@@ -179,6 +170,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         closeWelcomeSheet,
         toastMessage,
         showToast,
+        isStoragePersistent: safeStorage.isPersistent(),
       }}
     >
       {children}
@@ -193,4 +185,3 @@ export const useApp = (): AppContextValue => {
   }
   return ctx;
 };
-

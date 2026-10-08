@@ -5,15 +5,16 @@ import type { ChatMessage, Place } from "../types";
 import { CHAT_SUGGESTION_CHIPS } from "../constants";
 import { PlaceCard } from "../components/place-card";
 import { useApp } from "../context/AppContext";
-
-const MAX_MESSAGE_LENGTH = 500;
-const MAX_HISTORY_MESSAGES = 8;
+import {
+  buildChatHistory,
+  buildOutgoingPayloadText,
+} from "../utils/chat-helpers";
 
 export const AIChatPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const placeIdParam = searchParams.get("placeId");
 
-  const { profile } = useApp();
+  const { profile, showToast } = useApp();
 
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -28,11 +29,17 @@ export const AIChatPage: React.FC = () => {
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
+
+  // Stable failed turn state to avoid duplicate bubbles on retry
+  const [failedTurn, setFailedTurn] = useState<{ id: string; text: string } | null>(null);
+
+  // Concurrency guard to prevent duplicate concurrent network requests
+  const inFlightRef = useRef(false);
 
   // Contextual place state
   const [contextualPlace, setContextualPlace] = useState<Place | null>(null);
   const autoSentPlaceIdRef = useRef<string | null>(null);
+  const notifiedInvalidPlaceIdRef = useRef<string | null>(null);
 
   // Cached map of placeId -> Place
   const [placesCache, setPlacesCache] = useState<Record<string, Place>>({});
@@ -72,74 +79,32 @@ export const AIChatPage: React.FC = () => {
     }
   }, [placesCache]);
 
-  // Construct message text to send to AI with optional personalization
-  const buildOutgoingPayloadText = useCallback(
-    (userQuestion: string): string => {
-      const cleanQuestion = userQuestion.trim();
+  const executeSendMessage = async (userText: string, retryTurnId?: string) => {
+    const cleanText = userText.trim();
+    if (!cleanText || inFlightRef.current) return;
 
-      if (!profile || !profile.allowAIContext) {
-        return cleanQuestion.slice(0, MAX_MESSAGE_LENGTH);
-      }
+    inFlightRef.current = true;
+    setLoading(true);
+    setError(null);
 
-      // Format short context prefix
-      const lines: string[] = ["[Tuỳ chọn do người dùng cung cấp — chỉ phục vụ cách xưng hô]"];
-      if (profile.displayName) {
-        const cleanName = profile.displayName.replace(/[\r\n]/g, " ").trim();
-        lines.push(`Tên gọi: ${cleanName}`);
-      }
-      if (profile.addressAs) {
-        lines.push(`Cách xưng hô: ${profile.addressAs}`);
-      }
-      if (profile.ageGroup) {
-        const ageLabels: Record<string, string> = {
-          under18: "Dưới 18",
-          "18-24": "18–24",
-          "25-34": "25–34",
-          "35-49": "35–49",
-          "50plus": "50+",
-        };
-        const ageText = ageLabels[profile.ageGroup] || profile.ageGroup;
-        lines.push(`Nhóm tuổi: ${ageText}`);
-      }
-      lines.push("[Nội dung người dùng hỏi]");
-      lines.push(cleanQuestion);
-
-      const combined = lines.join("\n");
-      // If combined exceeds 500 limit, drop personalization prefix to protect the question
-      if (combined.length <= MAX_MESSAGE_LENGTH) {
-        return combined;
-      }
-      return cleanQuestion.slice(0, MAX_MESSAGE_LENGTH);
-    },
-    [profile]
-  );
-
-  const executeSendMessage = async (userText: string, isRetry = false) => {
-    if (!userText || loading) return;
+    const isRetry = Boolean(retryTurnId);
+    const activeMsgId = retryTurnId || `msg-${Date.now()}`;
 
     if (!isRetry) {
       const userMsg: ChatMessage = {
-        id: String(Date.now()),
+        id: activeMsgId,
         role: "user",
-        content: userText,
+        content: cleanText,
         timestamp: formatTime(),
       };
       setMessages((prev) => [...prev, userMsg]);
       setInputText("");
     }
 
-    setLoading(true);
-    setError(null);
-    setLastFailedMessage(userText);
-
     try {
-      // Build history payload (last MAX_HISTORY_MESSAGES, user and assistant only)
-      const historyPayload = messages
-        .filter((m) => m.id !== "welcome")
-        .slice(-MAX_HISTORY_MESSAGES)
-        .map((m) => ({ role: m.role, content: m.content }));
-
-      const outgoingMessage = buildOutgoingPayloadText(userText);
+      // Build history strictly excluding the active/failed user turn
+      const historyPayload = buildChatHistory(messages, activeMsgId);
+      const outgoingMessage = buildOutgoingPayloadText(cleanText, profile);
 
       const res = await api.sendChatMessage({
         message: outgoingMessage,
@@ -147,7 +112,7 @@ export const AIChatPage: React.FC = () => {
       });
 
       const assistantMsg: ChatMessage = {
-        id: String(Date.now() + 1),
+        id: `asst-${Date.now()}`,
         role: "assistant",
         content: res.answer,
         placeIds: res.placeIds || [],
@@ -155,39 +120,41 @@ export const AIChatPage: React.FC = () => {
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
-      setLastFailedMessage(null);
+      setFailedTurn(null);
 
       if (res.placeIds && res.placeIds.length > 0) {
         resolvePlaces(res.placeIds);
       }
     } catch (err: any) {
       setError(err?.message || "Không thể gửi tin nhắn. Vui lòng thử lại.");
+      setFailedTurn({ id: activeMsgId, text: cleanText });
     } finally {
       setLoading(false);
+      inFlightRef.current = false;
     }
   };
 
   const handleSendMessage = (textToSend?: string) => {
     const content = (textToSend || inputText).trim();
     if (content) {
-      executeSendMessage(content, false);
+      executeSendMessage(content);
     }
   };
 
   const handleRetry = () => {
-    if (lastFailedMessage) {
-      executeSendMessage(lastFailedMessage, true);
+    if (failedTurn && !inFlightRef.current) {
+      executeSendMessage(failedTurn.text, failedTurn.id);
     }
   };
 
-  // Handle contextual placeId param
+  // Handle contextual placeId param with P2 invalid place notice
   useEffect(() => {
     if (!placeIdParam) {
       setContextualPlace(null);
+      autoSentPlaceIdRef.current = null;
       return;
     }
 
-    // Guard duplicate fetch and auto-send in Strict Mode
     if (autoSentPlaceIdRef.current === placeIdParam) return;
 
     let isMounted = true;
@@ -197,17 +164,23 @@ export const AIChatPage: React.FC = () => {
         if (!isMounted) return;
         setContextualPlace(placeData);
 
-        // Auto-send contextual inquiry once
         if (autoSentPlaceIdRef.current !== placeIdParam) {
           autoSentPlaceIdRef.current = placeIdParam;
           const prompt = `Hãy giới thiệu cho mình về ${placeData.name} và gợi ý những điều nên trải nghiệm tại đây.`;
-          executeSendMessage(prompt, false);
+          executeSendMessage(prompt);
         }
       })
       .catch(() => {
-        // Fallback to regular chat if place not found
-        if (isMounted) {
-          setContextualPlace(null);
+        if (!isMounted) return;
+        setContextualPlace(null);
+        setSearchParams({});
+
+        // Friendly notice for invalid/missing placeId, guarded against replay
+        if (notifiedInvalidPlaceIdRef.current !== placeIdParam) {
+          notifiedInvalidPlaceIdRef.current = placeIdParam;
+          showToast(
+            "Không thể tải thông tin địa điểm này. Bạn vẫn có thể trò chuyện với trợ lý AI như bình thường."
+          );
         }
       });
 
@@ -460,6 +433,7 @@ export const AIChatPage: React.FC = () => {
               className="eco-btn-primary"
               style={{ height: 32, fontSize: 12, width: "auto", alignSelf: "flex-start", padding: "0 12px" }}
               onClick={handleRetry}
+              disabled={loading}
             >
               Thử lại
             </button>

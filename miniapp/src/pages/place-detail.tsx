@@ -5,6 +5,7 @@ import type { Place } from "../types";
 import { LoadingView, ErrorView } from "../components/state-view";
 import { useApp } from "../context/AppContext";
 import { DEFAULT_HERO_IMAGE } from "../constants";
+import { shareOrCopyUrl } from "../utils/share-helper";
 
 const PlaceDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -47,19 +48,10 @@ const PlaceDetailPage: React.FC = () => {
     showToast(`Thông tin chỉ đường tới ${targetPlace.name} đang được cập nhật.`);
   };
 
-  const handleSharePlace = (targetPlace: Place) => {
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      navigator.clipboard
-        .writeText(window.location.href)
-        .then(() => {
-          showToast(`Đã sao chép liên kết chia sẻ địa điểm: ${targetPlace.name}`);
-        })
-        .catch(() => {
-          showToast(`Đã sao chép liên kết chia sẻ địa điểm: ${targetPlace.name}`);
-        });
-    } else {
-      showToast(`Đã sao chép liên kết chia sẻ địa điểm: ${targetPlace.name}`);
-    }
+  const handleSharePlace = async (targetPlace: Place) => {
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    const res = await shareOrCopyUrl(url, targetPlace.name);
+    showToast(res.message);
   };
 
   const handleAskAI = (targetPlace: Place) => {

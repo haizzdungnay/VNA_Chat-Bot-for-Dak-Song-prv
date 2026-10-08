@@ -9,12 +9,22 @@ import { CATEGORY_SHORTCUTS, DEFAULT_HERO_IMAGE } from "../constants";
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
-  const { profile } = useApp();
+  const { profile, onboardingSeen, openWelcomeSheet } = useApp();
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [featuredPlaces, setFeaturedPlaces] = useState<Place[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // First-run welcome bottom sheet trigger explicitly on Home entry only
+  useEffect(() => {
+    if (!onboardingSeen) {
+      const timer = setTimeout(() => {
+        openWelcomeSheet();
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [onboardingSeen, openWelcomeSheet]);
 
   const loadData = async () => {
     try {
