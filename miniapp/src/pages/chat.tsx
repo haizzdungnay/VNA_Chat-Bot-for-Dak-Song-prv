@@ -1,18 +1,28 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Page, Header, Box, Text, Button, Input, Spinner } from "zmp-ui";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useSearchParams } from "zmp-ui";
 import { api } from "../services/api";
 import type { ChatMessage, Place } from "../types";
 import { CHAT_SUGGESTION_CHIPS } from "../constants";
 import { PlaceCard } from "../components/place-card";
+import { useApp } from "../context/AppContext";
 
-const AIChatPage: React.FC = () => {
+const MAX_MESSAGE_LENGTH = 500;
+const MAX_HISTORY_MESSAGES = 8;
+
+export const AIChatPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const placeIdParam = searchParams.get("placeId");
+
+  const { profile } = useApp();
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
       role: "assistant",
       content:
-        "Xin chào! Tôi là trợ lý du lịch Đắk Song. Bạn muốn tìm hiểu địa điểm tham quan, ẩm thực hay gợi ý lịch trình?",
+        "Xin chào 👋\nTôi là trợ lý du lịch Đắk Song.\nBạn muốn tìm địa điểm tham quan, ẩm thực hay gợi ý lịch trình mẫu hôm nay?",
       placeIds: [],
+      timestamp: "Vừa xong",
     },
   ]);
   const [inputText, setInputText] = useState("");
@@ -20,9 +30,18 @@ const AIChatPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
 
-  // Cached map of placeId -> Place to render PlaceCards in chat
+  // Contextual place state
+  const [contextualPlace, setContextualPlace] = useState<Place | null>(null);
+  const autoSentPlaceIdRef = useRef<string | null>(null);
+
+  // Cached map of placeId -> Place
   const [placesCache, setPlacesCache] = useState<Record<string, Place>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const formatTime = () => {
+    const d = new Date();
+    return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -32,14 +51,14 @@ const AIChatPage: React.FC = () => {
     scrollToBottom();
   }, [messages, loading]);
 
-  // Load places metadata for placeIds returned by AI
-  const resolvePlaces = async (placeIds: string[]) => {
-    const missingIds = placeIds.filter((id) => !placesCache[id]);
-    if (missingIds.length === 0) return;
+  // Resolve PlaceCards metadata for placeIds
+  const resolvePlaces = useCallback(async (placeIds: string[]) => {
+    const missing = placeIds.filter((id) => !placesCache[id]);
+    if (missing.length === 0) return;
 
     try {
       const fetched = await Promise.all(
-        missingIds.map((id) => api.getPlaceById(id).catch(() => null))
+        missing.map((id) => api.getPlaceById(id).catch(() => null))
       );
       setPlacesCache((prev) => {
         const next = { ...prev };
@@ -51,16 +70,59 @@ const AIChatPage: React.FC = () => {
     } catch {
       // Ignore cache fetch error
     }
-  };
+  }, [placesCache]);
 
-  const executeSendMessage = async (content: string, isRetry = false) => {
-    if (!content || loading) return;
+  // Construct message text to send to AI with optional personalization
+  const buildOutgoingPayloadText = useCallback(
+    (userQuestion: string): string => {
+      const cleanQuestion = userQuestion.trim();
+
+      if (!profile || !profile.allowAIContext) {
+        return cleanQuestion.slice(0, MAX_MESSAGE_LENGTH);
+      }
+
+      // Format short context prefix
+      const lines: string[] = ["[Tuỳ chọn do người dùng cung cấp — chỉ phục vụ cách xưng hô]"];
+      if (profile.displayName) {
+        const cleanName = profile.displayName.replace(/[\r\n]/g, " ").trim();
+        lines.push(`Tên gọi: ${cleanName}`);
+      }
+      if (profile.addressAs) {
+        lines.push(`Cách xưng hô: ${profile.addressAs}`);
+      }
+      if (profile.ageGroup) {
+        const ageLabels: Record<string, string> = {
+          under18: "Dưới 18",
+          "18-24": "18–24",
+          "25-34": "25–34",
+          "35-49": "35–49",
+          "50plus": "50+",
+        };
+        const ageText = ageLabels[profile.ageGroup] || profile.ageGroup;
+        lines.push(`Nhóm tuổi: ${ageText}`);
+      }
+      lines.push("[Nội dung người dùng hỏi]");
+      lines.push(cleanQuestion);
+
+      const combined = lines.join("\n");
+      // If combined exceeds 500 limit, drop personalization prefix to protect the question
+      if (combined.length <= MAX_MESSAGE_LENGTH) {
+        return combined;
+      }
+      return cleanQuestion.slice(0, MAX_MESSAGE_LENGTH);
+    },
+    [profile]
+  );
+
+  const executeSendMessage = async (userText: string, isRetry = false) => {
+    if (!userText || loading) return;
 
     if (!isRetry) {
       const userMsg: ChatMessage = {
         id: String(Date.now()),
         role: "user",
-        content,
+        content: userText,
+        timestamp: formatTime(),
       };
       setMessages((prev) => [...prev, userMsg]);
       setInputText("");
@@ -68,16 +130,19 @@ const AIChatPage: React.FC = () => {
 
     setLoading(true);
     setError(null);
-    setLastFailedMessage(content);
+    setLastFailedMessage(userText);
 
     try {
+      // Build history payload (last MAX_HISTORY_MESSAGES, user and assistant only)
       const historyPayload = messages
         .filter((m) => m.id !== "welcome")
-        .slice(-6)
+        .slice(-MAX_HISTORY_MESSAGES)
         .map((m) => ({ role: m.role, content: m.content }));
 
+      const outgoingMessage = buildOutgoingPayloadText(userText);
+
       const res = await api.sendChatMessage({
-        message: content,
+        message: outgoingMessage,
         history: historyPayload,
       });
 
@@ -86,6 +151,7 @@ const AIChatPage: React.FC = () => {
         role: "assistant",
         content: res.answer,
         placeIds: res.placeIds || [],
+        timestamp: formatTime(),
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -114,149 +180,321 @@ const AIChatPage: React.FC = () => {
     }
   };
 
-  return (
-    <Page>
-      <Header title="Trợ lý AI Đắk Song" showBackIcon={false} />
+  // Handle contextual placeId param
+  useEffect(() => {
+    if (!placeIdParam) {
+      setContextualPlace(null);
+      return;
+    }
 
-      <Box
-        p={4}
-        flex
-        flexDirection="column"
-        style={{
-          minHeight: "calc(100vh - 120px)",
-          paddingBottom: 90,
-        }}
-      >
-        {/* Suggestion Chips */}
-        <Box mb={3} flex style={{ gap: 6, overflowX: "auto", paddingBottom: 4 }}>
+    // Guard duplicate fetch and auto-send in Strict Mode
+    if (autoSentPlaceIdRef.current === placeIdParam) return;
+
+    let isMounted = true;
+    api
+      .getPlaceById(placeIdParam)
+      .then((placeData) => {
+        if (!isMounted) return;
+        setContextualPlace(placeData);
+
+        // Auto-send contextual inquiry once
+        if (autoSentPlaceIdRef.current !== placeIdParam) {
+          autoSentPlaceIdRef.current = placeIdParam;
+          const prompt = `Hãy giới thiệu cho mình về ${placeData.name} và gợi ý những điều nên trải nghiệm tại đây.`;
+          executeSendMessage(prompt, false);
+        }
+      })
+      .catch(() => {
+        // Fallback to regular chat if place not found
+        if (isMounted) {
+          setContextualPlace(null);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [placeIdParam]);
+
+  const handleClearContextualPlace = () => {
+    setContextualPlace(null);
+    setSearchParams({});
+  };
+
+  return (
+    <div className="chat-container">
+      {/* 1. Header Greeting & Status Panel */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "4px 10px",
+              borderRadius: "var(--radius-full)",
+              backgroundColor: "var(--color-secondary-container)",
+              color: "var(--color-on-secondary-container)",
+              fontSize: 11,
+              fontWeight: 600,
+            }}
+          >
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                backgroundColor: "var(--color-secondary-leaf)",
+              }}
+            />
+            <span>Sẵn sàng hỗ trợ</span>
+          </div>
+
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "4px 10px",
+              borderRadius: "var(--radius-full)",
+              backgroundColor: "var(--color-ochre-bg)",
+              color: "var(--color-ochre)",
+              fontSize: 11,
+              fontWeight: 600,
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+              psychology
+            </span>
+            <span>AI Đắk Song</span>
+          </div>
+        </div>
+
+        <div>
+          <h1
+            style={{
+              fontSize: 20,
+              fontWeight: 700,
+              color: "var(--color-text-primary)",
+              margin: 0,
+            }}
+          >
+            Trợ lý AI Đắk Song
+          </h1>
+          <p
+            style={{
+              fontSize: 12,
+              color: "var(--color-text-secondary)",
+              margin: "2px 0 0 0",
+            }}
+          >
+            Trợ lý ảo thông minh đồng hành cùng chuyến đi của bạn
+          </p>
+        </div>
+      </div>
+
+      {/* 2. Contextual Place Chip if querying specific place */}
+      {contextualPlace && (
+        <div style={{ marginBottom: 10 }}>
+          <span className="contextual-place-chip">
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+              location_on
+            </span>
+            <span>Đang tìm hiểu: {contextualPlace.name}</span>
+            <button
+              type="button"
+              onClick={handleClearContextualPlace}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "var(--color-primary)",
+                cursor: "pointer",
+                padding: "0 2px",
+                display: "inline-flex",
+                alignItems: "center",
+              }}
+              aria-label="Xóa ngữ cảnh địa điểm"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                close
+              </span>
+            </button>
+          </span>
+        </div>
+      )}
+
+      {/* 3. Quick Suggestion Chips */}
+      <div style={{ marginBottom: 16 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--color-ochre)",
+            marginBottom: 6,
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+            tips_and_updates
+          </span>
+          <span>Gợi ý câu hỏi nhanh</span>
+        </div>
+
+        <div className="filter-chip-row no-scrollbar">
           {CHAT_SUGGESTION_CHIPS.map((chip, idx) => (
             <button
               key={idx}
-              className="chip-btn"
-              onClick={() => handleSendMessage(chip)}
+              type="button"
+              className="filter-chip"
+              onClick={() => handleSendMessage(chip.prompt)}
               disabled={loading}
+              style={{
+                backgroundColor: "var(--color-surface)",
+                borderColor: "var(--color-ochre-border)",
+              }}
             >
-              {chip}
+              <span>{chip.emoji}</span>
+              <span>{chip.label}</span>
             </button>
           ))}
-        </Box>
+        </div>
+      </div>
 
-        {/* Message Stream */}
-        <Box flex flexDirection="column" style={{ gap: 12, flex: 1 }}>
-          {messages.map((msg) => {
-            const isUser = msg.role === "user";
-            return (
-              <div
-                key={msg.id}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: isUser ? "flex-end" : "flex-start",
-                  width: "100%",
-                }}
-              >
-                <div className={isUser ? "chat-bubble-user" : "chat-bubble-assistant"}>
-                  <Text size="normal" style={{ whiteSpace: "pre-wrap" }}>
-                    {msg.content}
-                  </Text>
-                </div>
-
-                {/* Render PlaceCards if placeIds attached to assistant answer */}
-                {!isUser && msg.placeIds && msg.placeIds.length > 0 && (
-                  <Box mt={2} style={{ width: "90%" }}>
-                    <Text size="xSmall" bold style={{ color: "#767a7f", marginBottom: 6 }}>
-                      Địa điểm được gợi ý:
-                    </Text>
-                    {msg.placeIds.map((pid) => {
-                      const place = placesCache[pid];
-                      return place ? (
-                        <PlaceCard key={pid} place={place} compact />
-                      ) : (
-                        <div
-                          key={pid}
-                          style={{
-                            padding: 8,
-                            backgroundColor: "#ffffff",
-                            borderRadius: 8,
-                            fontSize: 12,
-                            color: "#555",
-                            marginBottom: 4,
-                          }}
-                        >
-                          📍 {pid}
-                        </div>
-                      );
-                    })}
-                  </Box>
+      {/* 4. Chat Messages Stream */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, flex: 1 }}>
+        {messages.map((msg) => {
+          const isUser = msg.role === "user";
+          return (
+            <div
+              key={msg.id}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: isUser ? "flex-end" : "flex-start",
+                width: "100%",
+              }}
+            >
+              {/* Message Bubble */}
+              <div className={isUser ? "chat-bubble-user" : "chat-bubble-assistant"}>
+                <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{msg.content}</p>
+                {msg.timestamp && (
+                  <span
+                    style={{
+                      display: "block",
+                      fontSize: 10,
+                      marginTop: 4,
+                      textAlign: isUser ? "right" : "left",
+                      opacity: 0.75,
+                    }}
+                  >
+                    {msg.timestamp}
+                  </span>
                 )}
               </div>
-            );
-          })}
 
-          {loading && (
-            <Box flex alignItems="center" p={2} style={{ alignSelf: "flex-start" }}>
-              <Spinner visible />
-              <Text size="xSmall" style={{ marginLeft: 8, color: "#767a7f" }}>
-                AI đang suy nghĩ...
-              </Text>
-            </Box>
-          )}
+              {/* Recommended PlaceCards if returned by AI */}
+              {!isUser && msg.placeIds && msg.placeIds.length > 0 && (
+                <div style={{ width: "95%", maxWidth: 380, marginTop: 4 }}>
+                  {msg.placeIds.map((pid) => {
+                    const place = placesCache[pid];
+                    return place ? (
+                      <PlaceCard key={pid} place={place} compact />
+                    ) : null;
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
 
-          {error && (
-            <Box p={3} style={{ backgroundColor: "#ffeef0", borderRadius: 8 }}>
-              <Text size="small" style={{ color: "#d32f2f" }}>
-                {error}
-              </Text>
-              <Button
-                size="small"
-                variant="tertiary"
-                onClick={handleRetry}
-                style={{ marginTop: 4 }}
-              >
-                Thử lại
-              </Button>
-            </Box>
-          )}
-
-          <div ref={messagesEndRef} />
-        </Box>
-
-        {/* Input Bar */}
-        <Box
-          p={3}
-          style={{
-            position: "fixed",
-            bottom: 48,
-            left: 0,
-            right: 0,
-            backgroundColor: "#ffffff",
-            borderTop: "1px solid #e2e4e8",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            zIndex: 100,
-          }}
-        >
-          <Input
-            placeholder="Hỏi về địa điểm, đồ ăn..."
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleSendMessage();
+        {/* Loading Indicator */}
+        {loading && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "10px 14px",
+              borderRadius: "var(--radius-md)",
+              backgroundColor: "var(--color-surface)",
+              border: "1px solid var(--color-border)",
+              alignSelf: "flex-start",
             }}
-            disabled={loading}
-            style={{ flex: 1 }}
-          />
-          <Button
-            size="medium"
-            onClick={() => handleSendMessage()}
-            disabled={loading || !inputText.trim()}
           >
-            Gửi
-          </Button>
-        </Box>
-      </Box>
-    </Page>
+            <div
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: "50%",
+                border: "2px solid var(--color-border)",
+                borderTopColor: "var(--color-primary)",
+                animation: "spin 0.8s linear infinite",
+              }}
+            />
+            <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+              AI đang suy nghĩ...
+            </span>
+          </div>
+        )}
+
+        {/* Error View */}
+        {error && (
+          <div
+            style={{
+              padding: "12px 14px",
+              borderRadius: "var(--radius-md)",
+              backgroundColor: "rgba(220, 53, 69, 0.1)",
+              border: "1px solid rgba(220, 53, 69, 0.3)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              alignSelf: "flex-start",
+              maxWidth: "88%",
+            }}
+          >
+            <span style={{ fontSize: 13, color: "#dc3545" }}>{error}</span>
+            <button
+              type="button"
+              className="eco-btn-primary"
+              style={{ height: 32, fontSize: 12, width: "auto", alignSelf: "flex-start", padding: "0 12px" }}
+              onClick={handleRetry}
+            >
+              Thử lại
+            </button>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* 5. Fixed Bottom Composer Bar */}
+      <div className="chat-composer-bar">
+        <input
+          type="text"
+          className="chat-composer-input"
+          placeholder="Hỏi về địa điểm, đồ ăn, lịch trình..."
+          value={inputText}
+          onChange={(e) => setInputText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSendMessage();
+          }}
+          disabled={loading}
+        />
+        <button
+          type="button"
+          className="chat-send-btn"
+          onClick={() => handleSendMessage()}
+          disabled={loading || !inputText.trim()}
+          aria-label="Gửi tin nhắn"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 20 }}>
+            send
+          </span>
+        </button>
+      </div>
+    </div>
   );
 };
 

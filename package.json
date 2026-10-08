@@ -15,6 +15,6 @@
     "typecheck:miniapp": "npm --workspace miniapp run typecheck",
     "typecheck:worker": "npm --workspace worker run typecheck",
     "typecheck": "npm run typecheck:miniapp && npm run typecheck:worker",
-    "test": "npm --workspace worker run test"
+    "test": "npm --workspace worker run test && npm --workspace miniapp run test"
   }
 }

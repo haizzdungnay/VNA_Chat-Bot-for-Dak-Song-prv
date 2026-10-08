@@ -1,5 +1,4 @@
-import React, { useEffect, useState, useTransition } from "react";
-import { Page, Header, Box, Input } from "zmp-ui";
+import React, { useEffect, useState, useRef } from "react";
 import { useSearchParams } from "zmp-ui";
 import { api } from "../services/api";
 import type { Category, Place } from "../types";
@@ -8,48 +7,72 @@ import { LoadingView, ErrorView, EmptyView } from "../components/state-view";
 
 const ExplorePage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialCategoryId = searchParams.get("categoryId") || "";
+  const urlCategoryId = searchParams.get("categoryId") || "";
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [places, setPlaces] = useState<Place[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string>(initialCategoryId);
-  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [selectedCategory, setSelectedCategory] = useState<string>(urlCategoryId);
+  const [searchInput, setSearchInput] = useState<string>("");
+  const [debouncedSearch, setDebouncedSearch] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
 
-  const loadCategories = async () => {
-    try {
-      const cats = await api.getCategories();
-      setCategories(cats);
-    } catch {
-      // Ignore category load error fallback
-    }
-  };
+  // Stale request guard counter
+  const latestReqIdRef = useRef<number>(0);
 
-  const loadPlaces = async (catId: string, search: string) => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await api.getPlaces({
-        categoryId: catId || undefined,
-        search: search || undefined,
-      });
-      setPlaces(data);
-    } catch (err: any) {
-      setError(err?.message || "Không thể tải danh sách địa điểm");
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Sync selectedCategory when URL changes
   useEffect(() => {
-    loadCategories();
+    setSelectedCategory(urlCategoryId);
+  }, [urlCategoryId]);
+
+  // Debounce search input (~300ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // Load categories on mount
+  useEffect(() => {
+    let mounted = true;
+    api
+      .getCategories()
+      .then((data) => {
+        if (mounted) setCategories(data);
+      })
+      .catch(() => {
+        // Fallback or ignore
+      });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
+  // Fetch places with stale response guard
   useEffect(() => {
-    loadPlaces(selectedCategory, searchTerm);
-  }, [selectedCategory, searchTerm]);
+    const reqId = ++latestReqIdRef.current;
+    setLoading(true);
+    setError(null);
+
+    api
+      .getPlaces({
+        categoryId: selectedCategory || undefined,
+        search: debouncedSearch || undefined,
+      })
+      .then((data) => {
+        if (reqId === latestReqIdRef.current) {
+          setPlaces(data);
+          setLoading(false);
+        }
+      })
+      .catch((err: any) => {
+        if (reqId === latestReqIdRef.current) {
+          setError(err?.message || "Không thể tải danh sách địa điểm");
+          setLoading(false);
+        }
+      });
+  }, [selectedCategory, debouncedSearch]);
 
   const handleSelectCategory = (catId: string) => {
     const next = selectedCategory === catId ? "" : catId;
@@ -61,82 +84,166 @@ const ExplorePage: React.FC = () => {
     }
   };
 
-  const handleSearchChange = (val: string) => {
-    startTransition(() => {
-      setSearchTerm(val);
-    });
+  const handleClearSearch = () => {
+    setSearchInput("");
+    setDebouncedSearch("");
+  };
+
+  const getCategoryIcon = (slugOrName: string) => {
+    const lower = slugOrName.toLowerCase();
+    if (lower.includes("thien-nhien") || lower.includes("thiên")) return "park";
+    if (lower.includes("lich-su") || lower.includes("văn") || lower.includes("tự")) return "temple_buddhist";
+    if (lower.includes("thuc") || lower.includes("ẩm") || lower.includes("ăn")) return "coffee";
+    if (lower.includes("checkin") || lower.includes("ảnh") || lower.includes("chụp")) return "photo_camera";
+    return "category";
   };
 
   return (
-    <Page>
-      <Header title="Khám phá Đắk Song" showBackIcon={false} />
+    <div style={{ padding: "14px 16px 24px 16px", display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* 1. Header Section */}
+      <section style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <h1
+          style={{
+            fontSize: 22,
+            fontWeight: 700,
+            color: "var(--color-text-primary)",
+            margin: 0,
+            letterSpacing: "-0.015em",
+          }}
+        >
+          Khám phá địa điểm
+        </h1>
+        <p
+          style={{
+            fontSize: 13,
+            color: "var(--color-text-secondary)",
+            margin: 0,
+            lineHeight: 1.4,
+          }}
+        >
+          Tìm kiếm danh lam thắng cảnh, văn hóa bản địa & ẩm thực tại Đắk Song
+        </p>
+      </section>
 
-      <Box p={4}>
-        {/* Search Input */}
-        <Box mb={3}>
-          <Input.Search
+      {/* 2. Search Input Bar */}
+      <section>
+        <div className="search-bar-container">
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 22, color: "var(--color-secondary)" }}
+          >
+            search
+          </span>
+          <input
+            type="text"
+            className="search-bar-input"
             placeholder="Tìm kiếm địa điểm du lịch..."
-            value={searchTerm}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            clearable
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
           />
-        </Box>
+          {searchInput && (
+            <button
+              type="button"
+              className="search-clear-btn"
+              onClick={handleClearSearch}
+              aria-label="Xoá tìm kiếm"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                close
+              </span>
+            </button>
+          )}
+        </div>
+      </section>
 
-        {/* Category Filters */}
-        <Box mb={4} flex style={{ gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+      {/* 3. Category Filter Chips (Horizontal Carousel) */}
+      <section>
+        <div className="filter-chip-row no-scrollbar">
           <button
-            className="chip-btn"
-            style={{
-              backgroundColor: selectedCategory === "" ? "#0068ff" : "#ffffff",
-              color: selectedCategory === "" ? "#ffffff" : "#333333",
-              borderColor: selectedCategory === "" ? "#0068ff" : "#e2e4e8",
-            }}
+            type="button"
+            className={"filter-chip " + (selectedCategory === "" ? "active" : "")}
             onClick={() => handleSelectCategory("")}
           >
-            Tất cả
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+              travel_explore
+            </span>
+            <span>Tất cả</span>
           </button>
+
           {categories.map((cat) => {
             const isSelected = selectedCategory === cat.id;
+            const iconName = getCategoryIcon(cat.slug || cat.name);
             return (
               <button
                 key={cat.id}
-                className="chip-btn"
-                style={{
-                  backgroundColor: isSelected ? "#0068ff" : "#ffffff",
-                  color: isSelected ? "#ffffff" : "#333333",
-                  borderColor: isSelected ? "#0068ff" : "#e2e4e8",
-                }}
+                type="button"
+                className={"filter-chip " + (isSelected ? "active" : "")}
                 onClick={() => handleSelectCategory(cat.id)}
               >
-                {cat.name}
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                  {iconName}
+                </span>
+                <span>{cat.name}</span>
               </button>
             );
           })}
-        </Box>
+        </div>
+      </section>
 
-        {/* Places List / States */}
+      {/* 4. Destinations List / Status Views */}
+      <section style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         {loading && <LoadingView message="Đang tìm kiếm địa điểm..." />}
+
         {error && !loading && (
           <ErrorView
             message={error}
-            onRetry={() => loadPlaces(selectedCategory, searchTerm)}
+            onRetry={() => {
+              const reqId = ++latestReqIdRef.current;
+              setLoading(true);
+              setError(null);
+              api
+                .getPlaces({
+                  categoryId: selectedCategory || undefined,
+                  search: debouncedSearch || undefined,
+                })
+                .then((data) => {
+                  if (reqId === latestReqIdRef.current) {
+                    setPlaces(data);
+                    setLoading(false);
+                  }
+                })
+                .catch((err: any) => {
+                  if (reqId === latestReqIdRef.current) {
+                    setError(err?.message || "Lỗi tải địa điểm");
+                    setLoading(false);
+                  }
+                });
+            }}
           />
         )}
+
         {!loading && !error && places.length === 0 && (
           <EmptyView
             message="Không tìm thấy địa điểm phù hợp"
             actionText="Xem tất cả địa điểm"
             onAction={() => {
               setSelectedCategory("");
-              setSearchTerm("");
+              setSearchInput("");
+              setDebouncedSearch("");
+              setSearchParams({});
             }}
           />
         )}
+
         {!loading && !error && places.length > 0 && (
-          places.map((place) => <PlaceCard key={place.id} place={place} />)
+          <div>
+            {places.map((place) => (
+              <PlaceCard key={place.id} place={place} />
+            ))}
+          </div>
         )}
-      </Box>
-    </Page>
+      </section>
+    </div>
   );
 };
 

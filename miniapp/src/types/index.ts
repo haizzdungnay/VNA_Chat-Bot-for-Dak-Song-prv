@@ -30,6 +30,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   placeIds?: string[];
+  timestamp?: string;
 }
 
 export interface ChatRequest {
@@ -41,3 +42,17 @@ export interface ChatResponse {
   answer: string;
   placeIds: string[];
 }
+
+export type AddressAs = "anh" | "chi" | "ban" | "em";
+export type AgeGroup = "under18" | "18-24" | "25-34" | "35-49" | "50plus" | null;
+
+export interface PersonalizationProfile {
+  displayName?: string;
+  addressAs: AddressAs;
+  ageGroup: AgeGroup;
+  allowAIContext: boolean;
+  updatedAt: string;
+}
+
+export type ThemeMode = "light" | "dark" | "system";
+

@@ -5,6 +5,7 @@ import { App, ZMPRouter, AnimationRoutes, Route } from "zmp-ui";
 import "zmp-ui/zaui.css";
 import "./css/app.css";
 
+import { AppProvider } from "./context/AppContext";
 import { Layout } from "./components/layout";
 import HomePage from "./pages/home";
 import ExplorePage from "./pages/explore";
@@ -14,16 +15,18 @@ import AIChatPage from "./pages/chat";
 const RootApp: React.FC = () => {
   return (
     <App>
-      <ZMPRouter>
-        <Layout>
-          <AnimationRoutes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/explore" element={<ExplorePage />} />
-            <Route path="/place/:id" element={<PlaceDetailPage />} />
-            <Route path="/chat" element={<AIChatPage />} />
-          </AnimationRoutes>
-        </Layout>
-      </ZMPRouter>
+      <AppProvider>
+        <ZMPRouter>
+          <Layout>
+            <AnimationRoutes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/explore" element={<ExplorePage />} />
+              <Route path="/place/:id" element={<PlaceDetailPage />} />
+              <Route path="/chat" element={<AIChatPage />} />
+            </AnimationRoutes>
+          </Layout>
+        </ZMPRouter>
+      </AppProvider>
     </App>
   );
 };
