@@ -44,30 +44,49 @@ export class OpenAICompatibleProvider implements AIProvider {
       }
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+    let response: Response | null = null;
+    const retryDelayMs = typeof this.env.AI_RETRY_DELAY_MS !== "undefined"
+      ? Number(this.env.AI_RETRY_DELAY_MS)
+      : 1000;
 
-    let response: Response;
-    try {
-      response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        },
-        body: JSON.stringify(bodyPayload),
-        signal: controller.signal,
-      });
-    } catch (err: any) {
-      clearTimeout(timer);
-      if (err?.name === "AbortError") {
-        console.error("[OpenAICompatibleProvider] upstream request timeout");
-        throw new AIProviderError("Yêu cầu tới dịch vụ AI đã hết thời gian chờ. Vui lòng thử lại.");
+    for (let attempt = 0; attempt <= 1; attempt++) {
+      const subController = new AbortController();
+      const subTimer = setTimeout(() => subController.abort(), UPSTREAM_TIMEOUT_MS);
+      try {
+        response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          },
+          body: JSON.stringify(bodyPayload),
+          signal: subController.signal,
+        });
+      } catch (err: any) {
+        clearTimeout(subTimer);
+        if (attempt === 0) {
+          if (retryDelayMs > 0) await new Promise((r) => setTimeout(r, retryDelayMs));
+          continue;
+        }
+        if (err?.name === "AbortError") {
+          console.error("[OpenAICompatibleProvider] upstream request timeout");
+          throw new AIProviderError("Yêu cầu tới dịch vụ AI đã hết thời gian chờ. Vui lòng thử lại.");
+        }
+        console.error("[OpenAICompatibleProvider] network failure");
+        throw new AIProviderError("Không thể kết nối tới dịch vụ AI. Vui lòng kiểm tra lại kết nối mạng.");
+      } finally {
+        clearTimeout(subTimer);
       }
-      console.error("[OpenAICompatibleProvider] network failure");
-      throw new AIProviderError("Không thể kết nối tới dịch vụ AI. Vui lòng kiểm tra lại kết nối mạng.");
-    } finally {
-      clearTimeout(timer);
+
+      if (response && (response.status === 429 || response.status === 503) && attempt === 0) {
+        console.warn(`[OpenAICompatibleProvider] transient upstream ${response.status}, retrying in 1200ms...`);
+        if (retryDelayMs > 0) await new Promise((r) => setTimeout(r, retryDelayMs));
+        continue;
+      }
+      break;
+    }
+    if (!response) {
+      throw new AIProviderError("Không nhận được phản hồi từ dịch vụ AI.");
     }
 
     if (!response.ok) {

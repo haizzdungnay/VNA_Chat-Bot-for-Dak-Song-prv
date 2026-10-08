@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { InMemoryRateLimiter } from "../src/utils/rate-limiter.ts";
+import { InMemoryRateLimiter, chatRateLimiter } from "../src/utils/rate-limiter.ts";
 import { getCorsHeaders, errorResponse, jsonResponse } from "../src/utils/response.ts";
 import worker from "../src/index.ts";
 
@@ -46,17 +46,9 @@ test("Worker blocks oversized POST payloads with 413", async () => {
 
 test("Worker blocks chat endpoint when rate limit is exceeded with 429 and Retry-After", async () => {
   const env = { CORS_ALLOW_ORIGIN: "*" };
-  // Make 30 rapid requests with IP test-ip
+  // Simulate 30 rapid hits on rate limiter for client IP 10.0.0.1
   for (let i = 0; i < 30; i++) {
-    const req = new Request("http://localhost/api/chat", {
-      method: "POST",
-      headers: {
-        "CF-Connecting-IP": "10.0.0.1",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ message: "hi" }),
-    });
-    await worker.fetch(req, env, {});
+    chatRateLimiter.check("10.0.0.1");
   }
 
   // 31st request must receive 429

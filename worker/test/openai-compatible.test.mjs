@@ -12,6 +12,7 @@ function createMockEnv(overrides = {}) {
     AI_REASONING_EFFORT: "low",
     AI_JSON_MODE: "true",
     AI_API_KEY: "test-secret-key-12345",
+    AI_RETRY_DELAY_MS: "0",
     ...overrides,
   };
 }
