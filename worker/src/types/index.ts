@@ -8,6 +8,7 @@ export interface Env {
   AI_JSON_MODE?: string;
   AI_REASONING_EFFORT?: string;
   CORS_ALLOW_ORIGIN?: string;
+  AI_RETRY_DELAY_MS?: string | number;
 }
 
 export interface Category {
