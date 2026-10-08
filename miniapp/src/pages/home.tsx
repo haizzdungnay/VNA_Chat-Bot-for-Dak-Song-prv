@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "zmp-ui";
 import { api } from "../services/api";
-import type { Category, Place } from "../types";
+import type { Category, Place, Article } from "../types";
 import { PlaceCard } from "../components/place-card";
+import { ArticleModal } from "../components/article-modal";
 import { LoadingView, ErrorView, EmptyView } from "../components/state-view";
 import { useApp } from "../context/AppContext";
 import { CATEGORY_SHORTCUTS, DEFAULT_HERO_IMAGE } from "../constants";
@@ -13,10 +14,11 @@ const HomePage: React.FC = () => {
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [featuredPlaces, setFeaturedPlaces] = useState<Place[]>([]);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // First-run welcome bottom sheet trigger explicitly on Home entry only
   useEffect(() => {
     if (!onboardingSeen) {
       const timer = setTimeout(() => {
@@ -30,12 +32,14 @@ const HomePage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const [cats, places] = await Promise.all([
+      const [cats, places, arts] = await Promise.all([
         api.getCategories().catch(() => []),
         api.getPlaces({ featured: true }),
+        api.getArticles({ limit: 12 }).catch(() => []),
       ]);
       setCategories(cats);
       setFeaturedPlaces(places);
+      setArticles(arts);
     } catch (err: any) {
       setError(err?.message || "Không thể tải dữ liệu trang chủ");
     } finally {
@@ -47,7 +51,6 @@ const HomePage: React.FC = () => {
     loadData();
   }, []);
 
-  // Map category click to matching API category id
   const handleCategoryClick = (shortcutId: string, shortcutName: string) => {
     const matched = categories.find(
       (c) =>
@@ -55,11 +58,10 @@ const HomePage: React.FC = () => {
         c.name.toLowerCase().includes(shortcutName.toLowerCase())
     );
     const catId = matched ? matched.id : shortcutId;
-    navigate(`/explore?categoryId=${encodeURIComponent(catId)}`);
+    navigate("/explore?categoryId=" + encodeURIComponent(catId));
   };
 
-  const heroImage =
-    featuredPlaces[0]?.imageUrl || DEFAULT_HERO_IMAGE;
+  const heroImage = featuredPlaces[0]?.imageUrl || DEFAULT_HERO_IMAGE;
 
   return (
     <div style={{ padding: "14px 16px 24px 16px", display: "flex", flexDirection: "column", gap: 18 }}>
@@ -101,7 +103,7 @@ const HomePage: React.FC = () => {
             }}
           >
             {profile?.displayName
-              ? `Chào ${profile.displayName}! Khám phá Đắk Song`
+              ? "Chào " + profile.displayName + "! Khám phá Đắk Song"
               : "Khám phá Đắk Song"}
           </h1>
           <p
@@ -121,7 +123,7 @@ const HomePage: React.FC = () => {
       <section className="hero-banner-card">
         <div
           className="hero-media-wrapper"
-          style={{ backgroundImage: `url('${heroImage}')` }}
+          style={{ backgroundImage: "url('" + heroImage + "')" }}
         >
           <div className="hero-media-overlay" />
           <span className="hero-tag-pill">
@@ -171,14 +173,7 @@ const HomePage: React.FC = () => {
 
       {/* 3. Category Shortcuts (2x2 Grid) */}
       <section>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            marginBottom: 12,
-          }}
-        >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
           <span
             style={{
               width: 5,
@@ -207,7 +202,7 @@ const HomePage: React.FC = () => {
               className="category-card-btn"
               onClick={() => handleCategoryClick(cat.id, cat.name)}
             >
-              <div className={`category-icon-box ${cat.bgClass}`}>
+              <div className={"category-icon-box " + cat.bgClass}>
                 <span className="material-symbols-outlined" style={{ fontSize: 22 }}>
                   {cat.icon}
                 </span>
@@ -350,6 +345,133 @@ const HomePage: React.FC = () => {
           </div>
         )}
       </section>
+
+      {/* 6. Cultural Articles & Guidebooks Section */}
+      {articles.length > 0 && (
+        <section>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 14,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span
+                style={{
+                  width: 5,
+                  height: 16,
+                  borderRadius: 3,
+                  backgroundColor: "var(--color-ochre)",
+                }}
+              />
+              <h3
+                style={{
+                  fontSize: 16,
+                  fontWeight: 600,
+                  color: "var(--color-text-primary)",
+                  margin: 0,
+                }}
+              >
+                Cẩm nang & Văn hóa Đắk Song
+              </h3>
+            </div>
+
+            <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+              {articles.length} bài viết
+            </span>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              overflowX: "auto",
+              paddingBottom: 8,
+              WebkitOverflowScrolling: "touch",
+            }}
+          >
+            {articles.map((art) => (
+              <div
+                key={art.id}
+                onClick={() => setSelectedArticle(art)}
+                style={{
+                  flex: "0 0 220px",
+                  borderRadius: 14,
+                  overflow: "hidden",
+                  backgroundColor: "var(--color-surface, #ffffff)",
+                  border: "1px solid var(--color-border, #e5e7eb)",
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
+                }}
+              >
+                {art.imageUrl && (
+                  <div style={{ width: "100%", height: 115, overflow: "hidden" }}>
+                    <img
+                      src={art.imageUrl}
+                      alt={art.title}
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = "none";
+                      }}
+                    />
+                  </div>
+                )}
+                <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: "var(--color-secondary, #2563eb)",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    {art.categoryName}
+                  </span>
+                  <h4
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: "var(--color-text-primary)",
+                      margin: 0,
+                      lineHeight: 1.35,
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {art.title}
+                  </h4>
+                  <p
+                    style={{
+                      fontSize: 11,
+                      color: "var(--color-text-secondary)",
+                      margin: "2px 0 0 0",
+                      lineHeight: 1.3,
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {art.quote || art.title}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Article Detail Bottom Sheet Modal */}
+      <ArticleModal
+        article={selectedArticle}
+        onClose={() => setSelectedArticle(null)}
+      />
     </div>
   );
 };

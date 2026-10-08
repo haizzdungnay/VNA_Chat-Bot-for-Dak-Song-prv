@@ -39,6 +39,19 @@ export interface Place {
   updatedAt?: string;
 }
 
+export interface Article {
+  id: string;
+  slug: string;
+  title: string;
+  categoryName: string;
+  quote?: string;
+  content?: string;
+  imageUrl?: string;
+  publishDate?: string;
+  viewCount?: number;
+  createdAt?: string;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
@@ -59,6 +72,7 @@ export interface ChatInput {
   message: string;
   history: ChatMessage[];
   contextPlaces: Place[];
+  contextArticles?: Article[];
 }
 
 export interface AIProvider {

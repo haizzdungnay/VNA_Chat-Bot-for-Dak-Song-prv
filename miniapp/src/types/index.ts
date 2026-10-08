@@ -25,6 +25,18 @@ export interface Place {
   isFeatured: boolean;
 }
 
+export interface Article {
+  id: string;
+  slug: string;
+  title: string;
+  categoryName: string;
+  quote?: string;
+  content?: string;
+  imageUrl?: string;
+  publishDate?: string;
+  viewCount?: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -55,4 +67,3 @@ export interface PersonalizationProfile {
 }
 
 export type ThemeMode = "light" | "dark" | "system";
-

@@ -1,5 +1,6 @@
 import type { ChatRequest, ChatResponse, Env } from "../types";
 import { PlaceRepository } from "../repositories/place.repository";
+import { ArticleRepository } from "../repositories/article.repository";
 import { createAIProvider } from "./ai";
 import { TRAVEL_ASSISTANT_SYSTEM_PROMPT } from "../prompts/travel-assistant";
 import { ValidationError } from "../utils/errors";
@@ -9,9 +10,11 @@ const MAX_HISTORY_MESSAGES = 8;
 
 export class ChatService {
   private placeRepo: PlaceRepository;
+  private articleRepo: ArticleRepository;
 
   constructor(private env: Env) {
     this.placeRepo = new PlaceRepository(env.DB);
+    this.articleRepo = new ArticleRepository(env.DB);
   }
 
   async handleChat(body: Partial<ChatRequest>): Promise<ChatResponse> {
@@ -31,21 +34,37 @@ export class ChatService {
         content: m.content.slice(0, MAX_MESSAGE_LENGTH),
       }));
 
-    // ponytail: Load all places in MVP catalog for AI context. If catalog expands significantly, add category/keyword filtering.
-    const places = await this.placeRepo.findAll();
+    // Nạp toàn bộ địa điểm và bài viết chính thống làm kho tri thức
+    const [places, articles] = await Promise.all([
+      this.placeRepo.findAll(),
+      this.articleRepo.findAll({ limit: 42 }),
+    ]);
+
     const placesContext = places.length > 0
       ? places
           .map(
             (p) =>
-              `- ID: ${p.id} | Tên: ${p.name} | Danh mục: ${p.category?.name || "Khác"} | Tóm tắt: ${p.shortDescription} | Địa chỉ: ${p.address || "Chưa có"}`
+              `- ID: ${p.id} | Tên: ${p.name} | Danh mục: ${p.category?.name || "Khác"} | Địa chỉ: ${p.address || "Đắk Song"} | Tóm tắt: ${p.shortDescription}`
           )
           .join("\n")
       : "Chưa có dữ liệu địa điểm trong hệ thống.";
 
+    const articlesContext = articles.length > 0
+      ? articles
+          .map(
+            (a) =>
+              `- Bài viết: "${a.title}" | Danh mục: ${a.categoryName} | Tóm tắt: ${a.quote || a.title}`
+          )
+          .join("\n")
+      : "Chưa có bài viết.";
+
     const systemPrompt = `${TRAVEL_ASSISTANT_SYSTEM_PROMPT}
 
-CONTEXT ĐỊA ĐIỂM ĐẮK SONG HIỆN CÓ:
-${placesContext}`;
+KHO DỮ LIỆU ĐỊA ĐIỂM ĐẮK SONG (31 ĐIỂM CHÍNH THỨC):
+${placesContext}
+
+KHO DỮ LIỆU VĂN HÓA & DU LỊCH ĐẮK SONG (42 BÀI VIẾT NGUỒN TỪ DULICHDAKSONG.VNASW.VN):
+${articlesContext}`;
 
     const aiProvider = createAIProvider(this.env);
     const result = await aiProvider.chat({
@@ -53,6 +72,7 @@ ${placesContext}`;
       message: rawMessage,
       history: sanitizedHistory,
       contextPlaces: places,
+      contextArticles: articles,
     });
 
     // Lọc lại placeIds chỉ giữ các ID thực sự có trong database

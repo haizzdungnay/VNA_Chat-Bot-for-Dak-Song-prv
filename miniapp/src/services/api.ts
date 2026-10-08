@@ -1,9 +1,9 @@
-import type { Category, Place, ChatRequest, ChatResponse } from "../types";
+import type { Category, Place, Article, ChatRequest, ChatResponse } from "../types";
 
-const API_BASE_URL = (
+const rawBaseUrl =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL) ||
-  "http://localhost:8787"
-).replace(/\/$/, "");
+  "http://localhost:8787";
+const API_BASE_URL = rawBaseUrl.endsWith("/") ? rawBaseUrl.slice(0, -1) : rawBaseUrl;
 
 async function safeFetch(url: string, init?: RequestInit): Promise<Response> {
   try {
@@ -27,7 +27,7 @@ async function safeFetch(url: string, init?: RequestInit): Promise<Response> {
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    let errorMsg = `Yêu cầu thất bại với mã lỗi ${res.status}`;
+    let errorMsg = "Yêu cầu thất bại với mã lỗi " + res.status;
     try {
       const data = await res.json();
       if (data?.error) errorMsg = data.error;
@@ -41,7 +41,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
 export const api = {
   async getCategories(): Promise<Category[]> {
-    const res = await safeFetch(`${API_BASE_URL}/api/categories`);
+    const res = await safeFetch(API_BASE_URL + "/api/categories");
     return handleResponse<Category[]>(res);
   },
 
@@ -56,18 +56,35 @@ export const api = {
     if (params?.featured !== undefined) searchParams.set("featured", String(params.featured));
 
     const qs = searchParams.toString();
-    const url = `${API_BASE_URL}/api/places${qs ? `?${qs}` : ""}`;
+    const url = API_BASE_URL + "/api/places" + (qs ? "?" + qs : "");
     const res = await safeFetch(url);
     return handleResponse<Place[]>(res);
   },
 
   async getPlaceById(id: string): Promise<Place> {
-    const res = await safeFetch(`${API_BASE_URL}/api/places/${encodeURIComponent(id)}`);
+    const res = await safeFetch(API_BASE_URL + "/api/places/" + encodeURIComponent(id));
     return handleResponse<Place>(res);
   },
 
+  async getArticles(params?: { category?: string; search?: string; limit?: number }): Promise<Article[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.category) searchParams.set("category", params.category);
+    if (params?.search) searchParams.set("q", params.search);
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+
+    const qs = searchParams.toString();
+    const url = API_BASE_URL + "/api/articles" + (qs ? "?" + qs : "");
+    const res = await safeFetch(url);
+    return handleResponse<Article[]>(res);
+  },
+
+  async getArticleBySlug(slug: string): Promise<Article> {
+    const res = await safeFetch(API_BASE_URL + "/api/articles/" + encodeURIComponent(slug));
+    return handleResponse<Article>(res);
+  },
+
   async sendChatMessage(request: ChatRequest): Promise<ChatResponse> {
-    const res = await safeFetch(`${API_BASE_URL}/api/chat`, {
+    const res = await safeFetch(API_BASE_URL + "/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
