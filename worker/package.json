@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "build": "tsc --noEmit && wrangler deploy --dry-run",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/router.test.js",
+    "test": "node --test test/router.test.js test/openai-compatible.test.mjs",
     "deploy": "wrangler deploy",
     "cf-typegen": "wrangler types"
   },

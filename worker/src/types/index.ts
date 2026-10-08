@@ -6,6 +6,7 @@ export interface Env {
   AI_BASE_URL?: string;
   AI_API_KEY?: string;
   AI_JSON_MODE?: string;
+  AI_REASONING_EFFORT?: string;
   CORS_ALLOW_ORIGIN?: string;
 }
 

@@ -233,6 +233,31 @@ test("8. Share clipboard: truthful feedback in resolved, rejected, and unavailab
     resUnavailable.message,
     "Không thể tự động sao chép liên kết trên thiết bị này. Vui lòng thử lại sau."
   );
+
+  // Case D: Native Share Sheet succeeds
+  const mockNativeShareSuccess = async () => ({ success: true });
+  const resNativeSuccess = await shareOrCopyUrl(
+    url,
+    placeName,
+    null,
+    mockNativeShareSuccess,
+    { summary: "Rừng thông đẹp", thumbnail: "https://example.com/thumb.jpg" }
+  );
+  assert.equal(resNativeSuccess.success, true);
+  assert.equal(resNativeSuccess.message, `Đã mở chia sẻ địa điểm: ${placeName}`);
+
+  // Case E: Native Share Sheet rejected -> fallback to Clipboard succeeds
+  const mockNativeShareReject = async () => {
+    throw new Error("User cancelled share");
+  };
+  const resFallbackClipboard = await shareOrCopyUrl(
+    url,
+    placeName,
+    mockSuccessApi,
+    mockNativeShareReject
+  );
+  assert.equal(resFallbackClipboard.success, true);
+  assert.equal(resFallbackClipboard.message, `Đã sao chép liên kết địa điểm: ${placeName}`);
 });
 
 // 9. Storage unavailable: safe fallback does not throw; persistence status reported honestly

@@ -11,12 +11,12 @@
       "database_id": "REPLACE_WITH_D1_DATABASE_ID"
     }
   ],
-  "ai": {
-    "binding": "AI"
-  },
   "vars": {
-    "AI_PROVIDER": "workers-ai",
-    "AI_MODEL": "@cf/meta/llama-3.1-8b-instruct-fast",
+    "AI_PROVIDER": "openai-compatible",
+    "AI_BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "AI_MODEL": "gemini-3.8-flash",
+    "AI_REASONING_EFFORT": "low",
+    "AI_JSON_MODE": "true",
     "CORS_ALLOW_ORIGIN": "*"
   }
 }

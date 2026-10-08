@@ -5,6 +5,26 @@ const API_BASE_URL = (
   "http://localhost:8787"
 ).replace(/\/$/, "");
 
+async function safeFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (err: unknown) {
+    const isLocalhost = API_BASE_URL.includes("localhost") || API_BASE_URL.includes("127.0.0.1");
+    const isMobileOrExternal =
+      typeof window !== "undefined" &&
+      window.location.hostname !== "localhost" &&
+      window.location.hostname !== "127.0.0.1";
+
+    if (isLocalhost && isMobileOrExternal) {
+      throw new Error(
+        "Không thể kết nối máy chủ local từ thiết bị di động. Vui lòng cấu hình VITE_API_BASE_URL tới server backend."
+      );
+    }
+    const message = err instanceof Error ? err.message : "Lỗi kết nối mạng, vui lòng thử lại sau.";
+    throw new Error(message);
+  }
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let errorMsg = `Yêu cầu thất bại với mã lỗi ${res.status}`;
@@ -21,7 +41,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
 export const api = {
   async getCategories(): Promise<Category[]> {
-    const res = await fetch(`${API_BASE_URL}/api/categories`);
+    const res = await safeFetch(`${API_BASE_URL}/api/categories`);
     return handleResponse<Category[]>(res);
   },
 
@@ -37,17 +57,17 @@ export const api = {
 
     const qs = searchParams.toString();
     const url = `${API_BASE_URL}/api/places${qs ? `?${qs}` : ""}`;
-    const res = await fetch(url);
+    const res = await safeFetch(url);
     return handleResponse<Place[]>(res);
   },
 
   async getPlaceById(id: string): Promise<Place> {
-    const res = await fetch(`${API_BASE_URL}/api/places/${encodeURIComponent(id)}`);
+    const res = await safeFetch(`${API_BASE_URL}/api/places/${encodeURIComponent(id)}`);
     return handleResponse<Place>(res);
   },
 
   async sendChatMessage(request: ChatRequest): Promise<ChatResponse> {
-    const res = await fetch(`${API_BASE_URL}/api/chat`, {
+    const res = await safeFetch(`${API_BASE_URL}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),

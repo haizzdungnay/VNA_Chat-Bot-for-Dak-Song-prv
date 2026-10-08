@@ -50,7 +50,10 @@ const PlaceDetailPage: React.FC = () => {
 
   const handleSharePlace = async (targetPlace: Place) => {
     const url = typeof window !== "undefined" ? window.location.href : "";
-    const res = await shareOrCopyUrl(url, targetPlace.name);
+    const res = await shareOrCopyUrl(url, targetPlace.name, undefined, undefined, {
+      summary: targetPlace.shortDescription,
+      thumbnail: targetPlace.imageUrl,
+    });
     showToast(res.message);
   };
 
