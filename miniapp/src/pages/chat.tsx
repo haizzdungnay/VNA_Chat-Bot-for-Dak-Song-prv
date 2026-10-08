@@ -14,18 +14,16 @@ export const AIChatPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const placeIdParam = searchParams.get("placeId");
 
-  const { profile, showToast } = useApp();
+  const {
+    profile,
+    showToast,
+    chatMessages,
+    setChatMessages,
+    clearChatMessages,
+  } = useApp();
+  const messages = chatMessages;
+  const setMessages = setChatMessages;
 
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content:
-        "Xin chào 👋\nTôi là trợ lý du lịch Đắk Song.\nBạn muốn tìm địa điểm tham quan, ẩm thực hay gợi ý lịch trình mẫu hôm nay?",
-      placeIds: [],
-      timestamp: "Vừa xong",
-    },
-  ]);
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -223,23 +221,49 @@ export const AIChatPage: React.FC = () => {
             <span>Sẵn sàng hỗ trợ</span>
           </div>
 
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "4px 10px",
-              borderRadius: "var(--radius-full)",
-              backgroundColor: "var(--color-ochre-bg)",
-              color: "var(--color-ochre)",
-              fontSize: 11,
-              fontWeight: 600,
-            }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-              psychology
-            </span>
-            <span>AI Đắk Song</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {messages.length > 1 && (
+              <button
+                type="button"
+                onClick={clearChatMessages}
+                style={{
+                  border: "none",
+                  backgroundColor: "var(--color-surface-container, #f3f4f6)",
+                  cursor: "pointer",
+                  color: "var(--color-text-secondary, #4b5563)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  padding: "4px 9px",
+                  borderRadius: "var(--radius-full, 9999px)",
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                  restart_alt
+                </span>
+                <span>Hội thoại mới</span>
+              </button>
+            )}
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "4px 10px",
+                borderRadius: "var(--radius-full)",
+                backgroundColor: "var(--color-ochre-bg)",
+                color: "var(--color-ochre)",
+                fontSize: 11,
+                fontWeight: 600,
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                psychology
+              </span>
+              <span>AI Đắk Song</span>
+            </div>
           </div>
         </div>
 

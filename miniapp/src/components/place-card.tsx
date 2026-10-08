@@ -54,20 +54,41 @@ export const PlaceCard: React.FC<PlaceCardProps> = ({ place, compact = false }) 
             </span>
             Địa điểm được gợi ý
           </span>
-          {place.category?.name && (
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 600,
-                padding: "2px 8px",
-                borderRadius: "var(--radius-full)",
-                backgroundColor: "var(--color-secondary-container)",
-                color: "var(--color-on-secondary-container)",
-              }}
-            >
-              {place.category.name}
-            </span>
-          )}
+          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+            {Boolean(
+              place.website &&
+              (place.website.includes("vr") ||
+                place.website.includes("360") ||
+                place.name.includes("VR360"))
+            ) && (
+              <span
+                style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  padding: "1px 6px",
+                  borderRadius: "var(--radius-full)",
+                  backgroundColor: "var(--color-ochre)",
+                  color: "#ffffff",
+                }}
+              >
+                3D VR
+              </span>
+            )}
+            {place.category?.name && (
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  padding: "2px 8px",
+                  borderRadius: "var(--radius-full)",
+                  backgroundColor: "var(--color-secondary-container)",
+                  color: "var(--color-on-secondary-container)",
+                }}
+              >
+                {place.category.name}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Thumbnail & Info row */}
@@ -170,11 +191,39 @@ export const PlaceCard: React.FC<PlaceCardProps> = ({ place, compact = false }) 
           }}
         />
 
-        {place.category?.name && (
-          <span className="place-card-stitch-badge">
-            {place.category.name}
-          </span>
-        )}
+        <div style={{ position: "absolute", top: 12, left: 12, display: "flex", gap: 6, zIndex: 2 }}>
+          {place.category?.name && (
+            <span className="place-card-stitch-badge" style={{ position: "static" }}>
+              {place.category.name}
+            </span>
+          )}
+          {Boolean(
+            place.website &&
+            (place.website.includes("vr") ||
+              place.website.includes("360") ||
+              place.name.includes("VR360"))
+          ) && (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "4px 8px",
+                borderRadius: "var(--radius-full)",
+                backgroundColor: "var(--color-ochre)",
+                color: "#ffffff",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 3,
+                boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>
+                view_in_ar
+              </span>
+              3D VR360
+            </span>
+          )}
+        </div>
 
         <div className="place-card-stitch-location">
           <span className="material-symbols-outlined" style={{ fontSize: 15, color: "var(--color-ochre-light)" }}>

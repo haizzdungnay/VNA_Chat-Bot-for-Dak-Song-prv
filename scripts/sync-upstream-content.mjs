@@ -219,6 +219,85 @@ export function transformPlaces(rawPlaces, rawArticles = []) {
     });
   }
 
+
+  // 3. Add Official VR360 3D Destinations from daksong-daknong.vnasw.vn
+  const vr360Places = [
+    {
+      id: "vr360-dien-gio",
+      slug: "canh-dong-dien-gio-dak-song-vr360",
+      name: "Cánh đồng điện gió Đắk Song (VR360)",
+      categoryId: "cat-checkin",
+      shortDescription: "Cánh đồng điện gió với những tua-bin khổng lồ trên triền đồi bazan xanh mát. Điểm ngắm hoàng hôn và check-in biểu tượng của Đắk Song.",
+      description: "Cánh đồng điện gió Đắk Song bao gồm các cụm dự án điện gió Nam Bình, Đắk Hòa, Thuận Hạnh với hàng chục trụ tua-bin gió khổng lồ vươn mình giữa thảo nguyên đất đỏ bazan. Đây là một trong những điểm tham quan, ngắm cảnh và chụp ảnh hoàng hôn hùng vĩ nhất của huyện Đắk Song. Người dùng có thể trải nghiệm toàn cảnh thực tế ảo 3D VR360 từ flycam góc nhìn trên cao.",
+      address: "Xã Nam Bình & Thuận Hạnh, Huyện Đắk Song, Đắk Nông",
+      latitude: 12.2850,
+      longitude: 107.5750,
+      imageUrl: "https://static.dggv.edu.vn/360/1730690452343_z5997324418175_b447115dd96ccd7f7bd7b83f95a27101.jpg",
+      imagesJson: JSON.stringify(["https://static.dggv.edu.vn/360/1730690452343_z5997324418175_b447115dd96ccd7f7bd7b83f95a27101.jpg"]),
+      mapUrl: "https://maps.google.com/?q=12.2850,107.5750",
+      openingHours: "Cả ngày (Khuyến nghị 16:00 - 18:00)",
+      phone: null,
+      website: "https://daksong-daknong.vnasw.vn/#node51",
+      isFeatured: 1
+    },
+    {
+      id: "vr360-hang-thong-ql14",
+      slug: "hang-thong-canh-quan-quoc-lo-14-vr360",
+      name: "Hàng thông cảnh quan Quốc lộ 14 (VR360)",
+      categoryId: "cat-nature",
+      shortDescription: "Cung đường hàng thông xanh rì rào chạy dọc Quốc lộ 14 qua Đắk Song, được mệnh danh là một trong những đoạn đường đẹp nhất Tây Nguyên.",
+      description: "Đoạn đường Quốc lộ 14 qua huyện Đắk Song nổi bật với những hàng thông cổ thụ xanh ngắt bạt ngàn hai bên đường. Không khí trong lành, se lạnh như Đà Lạt giữa lòng Đắk Nông. Điểm dừng chân lý tưởng để ngắm cảnh, chụp hình và trải nghiệm tour thực tế ảo VR360 3D.",
+      address: "Quốc lộ 14, Thị trấn Đức An, Huyện Đắk Song",
+      latitude: 12.2450,
+      longitude: 107.5620,
+      imageUrl: "https://static.dggv.edu.vn/360/1672307604677_z3997641506907_ff6e17b67121e6b6a218553db5c79124.jpg",
+      imagesJson: JSON.stringify(["https://static.dggv.edu.vn/360/1672307604677_z3997641506907_ff6e17b67121e6b6a218553db5c79124.jpg"]),
+      mapUrl: "https://maps.google.com/?q=12.2450,107.5620",
+      openingHours: "Cả ngày",
+      phone: null,
+      website: "https://daksong-daknong.vnasw.vn/#node46",
+      isFeatured: 1
+    },
+    {
+      id: "vr360-cong-dong-mnong",
+      slug: "khong-gian-van-hoa-cong-dong-mnong-vr360",
+      name: "Không gian văn hóa cộng đồng M'nông (VR360)",
+      categoryId: "cat-history",
+      shortDescription: "Không gian sinh hoạt văn hóa truyền thống của đồng bào M'nông tại Đắk Song: múa chiêng, lửa trại, nhà rông.",
+      description: "Trung tâm học tập và sinh hoạt cộng đồng của người M'nông tại Đắk Song là nơi bảo tồn những giá trị văn hóa phi vật thể đặc sắc như diễn tấu cồng chiêng, múa xoang, dệt thổ cẩm và các lễ hội truyền thống quanh đống lửa trại. Hỗ trợ xem tour thực tế ảo 3D VR360 sinh hoạt múa chiêng chân thực.",
+      address: "Xã Nâm N'Jang & Đắk N'Drung, Huyện Đắk Song",
+      latitude: 12.2350,
+      longitude: 107.6150,
+      imageUrl: "https://static.dggv.edu.vn/360/1672314351711_thuong_thuc_ruou_can_trong_le_hoi_cua_dan_toc_mnong_20220302162108_20220312152147.jpg",
+      imagesJson: JSON.stringify(["https://static.dggv.edu.vn/360/1672314351711_thuong_thuc_ruou_can_trong_le_hoi_cua_dan_toc_mnong_20220302162108_20220312152147.jpg"]),
+      mapUrl: "https://maps.google.com/?q=12.2350,107.6150",
+      openingHours: "08:00 - 17:30",
+      phone: null,
+      website: "https://daksong-daknong.vnasw.vn/#node60",
+      isFeatured: 1
+    },
+    {
+      id: "vr360-toan-canh-daksong",
+      slug: "toan-canh-huyen-dak-song-tu-tren-cao-vr360",
+      name: "Toàn cảnh huyện Đắk Song từ trên cao (VR360)",
+      categoryId: "cat-checkin",
+      shortDescription: "Trải nghiệm ngắm toàn cảnh 360 độ non nước Đắk Song, hồ Đắk Mol và những đồi thông từ góc nhìn flycam trên không.",
+      description: "Góc nhìn toàn cảnh 360 độ từ trên không bao quát toàn bộ trung tâm thị trấn Đức An, hồ Đắk Mol uốn lượn, các nương rẫy hồ tiêu cà phê bạt ngàn và xa xa là những cánh quạt điện gió xoay đều trong gió ngàn Tây Nguyên.",
+      address: "Thị trấn Đức An, Huyện Đắk Song, Đắk Nông",
+      latitude: 12.2500,
+      longitude: 107.5680,
+      imageUrl: "https://static.dggv.edu.vn/360/1730690452343_z5997324418175_b447115dd96ccd7f7bd7b83f95a27101.jpg",
+      imagesJson: JSON.stringify(["https://static.dggv.edu.vn/360/1730690452343_z5997324418175_b447115dd96ccd7f7bd7b83f95a27101.jpg"]),
+      mapUrl: "https://maps.google.com/?q=12.2500,107.5680",
+      openingHours: "Cả ngày",
+      phone: null,
+      website: "https://daksong-daknong.vnasw.vn/#node110",
+      isFeatured: 1
+    }
+  ];
+
+  resultPlaces.push(...vr360Places);
+
   return resultPlaces;
 }
 

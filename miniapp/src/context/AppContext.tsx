@@ -1,11 +1,20 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
-import type { PersonalizationProfile, ThemeMode } from "../types";
+import type { PersonalizationProfile, ThemeMode, ChatMessage } from "../types";
 import {
   STORAGE_KEY_PROFILE,
   STORAGE_KEY_ONBOARDING_SEEN,
   STORAGE_KEY_THEME,
 } from "../constants";
 import { safeStorage } from "../services/storage";
+
+const DEFAULT_WELCOME_MESSAGE: ChatMessage = {
+  id: "welcome",
+  role: "assistant",
+  content:
+    "Xin chào 👋\nTôi là trợ lý du lịch Đắk Song.\nBạn muốn tìm địa điểm tham quan, ẩm thực hay gợi ý lịch trình mẫu hôm nay?",
+  placeIds: [],
+  timestamp: "Vừa xong",
+};
 
 interface AppContextValue {
   theme: ThemeMode;
@@ -30,6 +39,11 @@ interface AppContextValue {
   toastMessage: string | null;
   showToast: (msg: string) => void;
   isStoragePersistent: boolean;
+
+  // In-app temporary session memory for AI Chat
+  chatMessages: ChatMessage[];
+  setChatMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  clearChatMessages: () => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -69,6 +83,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [isWelcomeSheetOpen, setIsWelcomeSheetOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // In-app temporary session memory (resets only when app reloads / terminates)
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([DEFAULT_WELCOME_MESSAGE]);
+
+  const clearChatMessages = useCallback(() => {
+    setChatMessages([DEFAULT_WELCOME_MESSAGE]);
+  }, []);
 
   // Listen to system theme changes
   useEffect(() => {
@@ -171,6 +192,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toastMessage,
         showToast,
         isStoragePersistent: safeStorage.isPersistent(),
+        chatMessages,
+        setChatMessages,
+        clearChatMessages,
       }}
     >
       {children}

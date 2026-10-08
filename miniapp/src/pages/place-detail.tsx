@@ -336,6 +336,31 @@ const PlaceDetailPage: React.FC = () => {
               </div>
             </div>
 
+            {/* 4.5. VR360 3D Tour CTA Button */}
+            {Boolean(
+              place.website &&
+              (place.website.includes("vr") ||
+                place.website.includes("360") ||
+                place.name.includes("VR360"))
+            ) && (
+              <button
+                type="button"
+                className="eco-btn-primary"
+                onClick={() => window.open(place.website, "_blank")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>
+                  view_in_ar
+                </span>
+                <span>Trải nghiệm Tour VR360 3D</span>
+              </button>
+            )}
+
             {/* 5. MANDATORY: Hỏi AI về địa điểm này */}
             <button
               type="button"

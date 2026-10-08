@@ -236,6 +236,52 @@ const HomePage: React.FC = () => {
         </div>
       </section>
 
+      {/* 3.5. VR360 3D Virtual Tour Banner */}
+      <section
+        style={{
+          borderRadius: "var(--radius-lg, 16px)",
+          padding: "14px 16px",
+          background: "linear-gradient(135deg, #137A3E 0%, #0d522a 100%)",
+          color: "#ffffff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          boxShadow: "0 4px 12px rgba(19, 122, 62, 0.2)",
+          cursor: "pointer",
+        }}
+        onClick={() => window.open("https://daksong-daknong.vnasw.vn/", "_blank")}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: "50%",
+              backgroundColor: "rgba(255, 255, 255, 0.2)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 24, color: "#ffffff" }}>
+              view_in_ar
+            </span>
+          </div>
+          <div>
+            <h4 style={{ fontSize: 15, fontWeight: 700, margin: 0, color: "#ffffff" }}>
+              Trải nghiệm Du lịch 3D VR360
+            </h4>
+            <p style={{ fontSize: 12, margin: "2px 0 0 0", color: "rgba(255, 255, 255, 0.85)" }}>
+              Toàn cảnh điện gió, thác Lưu Ly, Nâm Nung thực tế ảo
+            </p>
+          </div>
+        </div>
+        <span className="material-symbols-outlined" style={{ fontSize: 20, color: "#ffffff" }}>
+          open_in_new
+        </span>
+      </section>
+
       {/* 4. AI Travel Assistant CTA Banner */}
       <section className="ai-cta-card">
         <div className="ai-accent-bar" />
