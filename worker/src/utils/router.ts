@@ -42,6 +42,14 @@ export class Router {
     return this.add("POST", path, handler);
   }
 
+  put(path: string, handler: RouteHandler): this {
+    return this.add("PUT", path, handler);
+  }
+
+  delete(path: string, handler: RouteHandler): this {
+    return this.add("DELETE", path, handler);
+  }
+
   async handle(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     const pathname = url.pathname;
@@ -62,3 +70,4 @@ export class Router {
     return errorResponse("Not Found", 404, env);
   }
 }
+
