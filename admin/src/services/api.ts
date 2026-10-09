@@ -18,6 +18,20 @@ export class AdminApiError extends Error {
   }
 }
 
+export function getApiBaseUrl(): string {
+  if (
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+  ) {
+    return "";
+  }
+  const envUrl = (import.meta as any).env?.VITE_API_BASE_URL;
+  if (envUrl) {
+    return envUrl.endsWith("/") ? envUrl.slice(0, -1) : envUrl;
+  }
+  return "https://vna-dak-song-demo.vna-daksong-tuanduong26.workers.dev";
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers || {});
   headers.set("Cache-Control", "no-store");
@@ -25,10 +39,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers.set("Content-Type", "application/json");
   }
 
-  const res = await fetch(path, {
+  const url = path.startsWith("http") ? path : `${getApiBaseUrl()}${path}`;
+
+  const res = await fetch(url, {
     ...options,
     headers,
-    credentials: "same-origin",
   });
 
   if (!res.ok) {
