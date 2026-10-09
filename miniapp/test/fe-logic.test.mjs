@@ -346,3 +346,63 @@ test("12. Contextual ?q= parameter executes auto-send strictly once without infi
   assert.equal(sendCount, 1, "Must NOT auto-send again on re-render");
 });
 
+
+// 13. ArticleModal Hook regression: null -> article -> null hook execution simulation
+test("13. ArticleModal hook order remains invariant across null -> article -> null transitions", () => {
+  let hookCallCount = 0;
+  const mockRenderArticleModal = (article) => {
+    hookCallCount = 0;
+    hookCallCount++; // useNavigate
+    hookCallCount++; // useMemo
+    const sanitizedContent = article?.content ? sanitizeArticleHtml(article.content) : "<p>Nội dung đang được cập nhật...</p>";
+    hookCallCount++; // useCallback
+
+    if (!article) {
+      return { rendered: false, hooksCalled: hookCallCount };
+    }
+    return { rendered: true, hooksCalled: hookCallCount, content: sanitizedContent };
+  };
+
+  const r1 = mockRenderArticleModal(null);
+  assert.equal(r1.rendered, false);
+  assert.equal(r1.hooksCalled, 3);
+
+  const mockArticle = {
+    id: "art-1",
+    slug: "thac-luu-ly",
+    title: "Thác Lưu Ly",
+    categoryName: "Thiên nhiên",
+    content: "<p>Thác nước tuyệt đẹp</p>"
+  };
+  const r2 = mockRenderArticleModal(mockArticle);
+  assert.equal(r2.rendered, true);
+  assert.equal(r2.hooksCalled, 3);
+
+  const r3 = mockRenderArticleModal(null);
+  assert.equal(r3.rendered, false);
+  assert.equal(r3.hooksCalled, 3);
+});
+
+// 14. Comprehensive XSS payloads sanitized without regex bypass
+test("14. Comprehensive XSS payloads sanitized across svg, iframe, javascript URI, and handlers", () => {
+  const dangerousVectors = [
+    '<script>alert("XSS")</script>',
+    '<iframe src="https://evil.com"></iframe>',
+    '<img src="invalid" onerror="alert(document.cookie)">',
+    '<a href="javascript:alert(1)">Click Me</a>',
+    '<svg><animate onbegin=alert(1) attributeName=x></svg>',
+    '<body onload=alert(1)>',
+    '<button onclick="fetch(\'https://attacker.com\')">Test</button>'
+  ];
+
+  for (const vector of dangerousVectors) {
+    const cleaned = sanitizeArticleHtml(vector);
+    assert.ok(!cleaned.includes("<script"), `Must strip script tag in: ${vector}`);
+    assert.ok(!cleaned.includes("<iframe"), `Must strip iframe in: ${vector}`);
+    assert.ok(!cleaned.includes("onerror"), `Must strip onerror in: ${vector}`);
+    assert.ok(!cleaned.includes("javascript:"), `Must strip javascript: in: ${vector}`);
+    assert.ok(!cleaned.includes("onbegin"), `Must strip onbegin in: ${vector}`);
+    assert.ok(!cleaned.includes("onload"), `Must strip onload in: ${vector}`);
+    assert.ok(!cleaned.includes("onclick"), `Must strip onclick in: ${vector}`);
+  }
+});

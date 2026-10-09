@@ -108,6 +108,9 @@ export async function fetchUpstreamData() {
   });
   const locListData = await locListRes.json();
   const rawLocations = locListData.data?.items || [];
+  if (!Array.isArray(rawLocations) || rawLocations.length === 0) {
+    throw new Error('Không nhận được dữ liệu địa điểm hợp lệ từ upstream VNA API.');
+  }
   console.log(`[Sync] Tìm thấy ${rawLocations.length} địa điểm thô từ travel-location-public.`);
 
   const fullPlaces = [];
@@ -139,6 +142,9 @@ export async function fetchUpstreamData() {
   });
   const artData = await artRes.json();
   const rawArticles = artData.data?.items || [];
+  if (!Array.isArray(rawArticles) || rawArticles.length === 0) {
+    throw new Error('Không nhận được dữ liệu bài viết hợp lệ từ upstream VNA API.');
+  }
   console.log(`[Sync] Tìm thấy ${rawArticles.length} bài viết tổng cộng.`);
 
   const fullArticles = [];
@@ -314,24 +320,25 @@ export function transformArticles(rawArticles = []) {
   return result;
 }
 
-export function generateSeedSql(transformedPlaces = [], transformedArticles = []) {
+// Generates 0002_seed.sql format (strictly matches 0001 initial schema: categories + places without source_type)
+export function generatePlacesSeedSql(transformedPlaces = []) {
   const lines = [
     '-- VNA Đắk Song D1 Official Seed Data (Generated from VNA Core API)',
     '-- Timestamp: ' + new Date().toISOString(),
     '',
     '-- 1. Categories (Safe Idempotent Insert)',
-    `INSERT INTO categories (id, slug, name, icon) VALUES`,
-    `  ('cat-history', 'di-tich-lich-su', 'Di tích lịch sử', 'zi-home'),`,
-    `  ('cat-nature', 'thien-nhien', 'Thiên nhiên', 'zi-location'),`,
-    `  ('cat-checkin', 'diem-check-in', 'Điểm check-in', 'zi-star'),`,
-    `  ('cat-food', 'am-thuc', 'Ẩm thực', 'zi-chat')`,
-    `ON CONFLICT(id) DO UPDATE SET`,
-    `  slug = excluded.slug,`,
-    `  name = excluded.name,`,
-    `  icon = excluded.icon;`,
+    'INSERT INTO categories (id, slug, name, icon) VALUES',
+    "  ('cat-history', 'di-tich-lich-su', 'Di tích lịch sử', 'zi-home'),",
+    "  ('cat-nature', 'thien-nhien', 'Thiên nhiên', 'zi-location'),",
+    "  ('cat-checkin', 'diem-check-in', 'Điểm check-in', 'zi-star'),",
+    "  ('cat-food', 'am-thuc', 'Ẩm thực', 'zi-chat')",
+    'ON CONFLICT(id) DO UPDATE SET',
+    '  slug = excluded.slug,',
+    '  name = excluded.name,',
+    '  icon = excluded.icon;',
     '',
     '-- 2. Dọn dẹp dữ liệu mẫu ban đầu (place-01..04)',
-    `DELETE FROM places WHERE id IN ('place-01', 'place-02', 'place-03', 'place-04');`,
+    "DELETE FROM places WHERE id IN ('place-01', 'place-02', 'place-03', 'place-04');",
     '',
     `-- 3. Places (${transformedPlaces.length} địa danh & điểm dịch vụ từ Cổng thông tin du lịch Đắk Song)`
   ];
@@ -340,27 +347,39 @@ export function generateSeedSql(transformedPlaces = [], transformedArticles = []
     const latVal = p.latitude === null || p.latitude === undefined ? 'NULL' : p.latitude;
     const lngVal = p.longitude === null || p.longitude === undefined ? 'NULL' : p.longitude;
     lines.push(
-      `INSERT INTO places (id, slug, name, category_id, short_description, description, address, latitude, longitude, image_url, images_json, map_url, opening_hours, phone, website, is_featured, source_type) VALUES (${escapeSql(p.id)}, ${escapeSql(p.slug)}, ${escapeSql(p.name)}, ${escapeSql(p.categoryId)}, ${escapeSql(p.shortDescription)}, ${escapeSql(p.description)}, ${escapeSql(p.address)}, ${latVal}, ${lngVal}, ${escapeSql(p.imageUrl)}, ${escapeSql(p.imagesJson)}, ${escapeSql(p.mapUrl)}, ${escapeSql(p.openingHours)}, ${escapeSql(p.phone)}, ${escapeSql(p.website)}, ${p.isFeatured}, ${escapeSql(p.sourceType || 'verified')}) ON CONFLICT(id) DO UPDATE SET slug = excluded.slug, name = excluded.name, category_id = excluded.category_id, short_description = excluded.short_description, description = excluded.description, address = excluded.address, latitude = excluded.latitude, longitude = excluded.longitude, image_url = excluded.image_url, images_json = excluded.images_json, map_url = excluded.map_url, opening_hours = excluded.opening_hours, phone = excluded.phone, website = excluded.website, is_featured = excluded.is_featured, source_type = excluded.source_type, updated_at = datetime('now');`
+      `INSERT INTO places (id, slug, name, category_id, short_description, description, address, latitude, longitude, image_url, images_json, map_url, opening_hours, phone, website, is_featured) VALUES (${escapeSql(p.id)}, ${escapeSql(p.slug)}, ${escapeSql(p.name)}, ${escapeSql(p.categoryId)}, ${escapeSql(p.shortDescription)}, ${escapeSql(p.description)}, ${escapeSql(p.address)}, ${latVal}, ${lngVal}, ${escapeSql(p.imageUrl)}, ${escapeSql(p.imagesJson)}, ${escapeSql(p.mapUrl)}, ${escapeSql(p.openingHours)}, ${escapeSql(p.phone)}, ${escapeSql(p.website)}, ${p.isFeatured}) ON CONFLICT(id) DO UPDATE SET slug = excluded.slug, name = excluded.name, category_id = excluded.category_id, short_description = excluded.short_description, description = excluded.description, address = excluded.address, latitude = excluded.latitude, longitude = excluded.longitude, image_url = excluded.image_url, images_json = excluded.images_json, map_url = excluded.map_url, opening_hours = excluded.opening_hours, phone = excluded.phone, website = excluded.website, is_featured = excluded.is_featured, updated_at = datetime('now');`
     );
   }
 
-  lines.push('');
-  lines.push(`-- 4. Articles Table & Data (${transformedArticles.length} bài viết toàn văn)`);
-  lines.push(`CREATE TABLE IF NOT EXISTS articles (`);
-  lines.push(`  id TEXT PRIMARY KEY,`);
-  lines.push(`  slug TEXT NOT NULL UNIQUE,`);
-  lines.push(`  title TEXT NOT NULL,`);
-  lines.push(`  category_name TEXT NOT NULL,`);
-  lines.push(`  quote TEXT,`);
-  lines.push(`  content TEXT,`);
-  lines.push(`  image_url TEXT,`);
-  lines.push(`  publish_date TEXT,`);
-  lines.push(`  view_count INTEGER DEFAULT 0,`);
-  lines.push(`  created_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
-  lines.push(`);`);
-  lines.push(`CREATE INDEX IF NOT EXISTS idx_articles_slug ON articles(slug);`);
-  lines.push(`CREATE INDEX IF NOT EXISTS idx_articles_category ON articles(category_name);`);
-  lines.push('');
+  return lines.join('\n');
+}
+
+// Generates 0003_schema_update.sql format (adds source_type, updates vr360, creates articles schema + seeds)
+export function generateArticlesMigrationSql(transformedArticles = []) {
+  const lines = [
+    '-- Migration 0003: Add source_type to places and ensure articles schema + seed',
+    "ALTER TABLE places ADD COLUMN source_type TEXT DEFAULT 'verified';",
+    '',
+    "UPDATE places SET source_type = 'vr360' WHERE id LIKE 'vr360-%';",
+    '',
+    'CREATE TABLE IF NOT EXISTS articles (',
+    '  id TEXT PRIMARY KEY,',
+    '  slug TEXT NOT NULL UNIQUE,',
+    '  title TEXT NOT NULL,',
+    '  category_name TEXT NOT NULL,',
+    '  quote TEXT,',
+    '  content TEXT,',
+    '  image_url TEXT,',
+    '  publish_date TEXT,',
+    '  view_count INTEGER DEFAULT 0,',
+    '  created_at DATETIME DEFAULT CURRENT_TIMESTAMP',
+    ');',
+    '',
+    'CREATE INDEX IF NOT EXISTS idx_articles_slug ON articles(slug);',
+    'CREATE INDEX IF NOT EXISTS idx_articles_category ON articles(category_name);',
+    '',
+    `-- 4. Articles Data (${transformedArticles.length} bài viết toàn văn)`
+  ];
 
   for (const a of transformedArticles) {
     lines.push(
@@ -369,6 +388,15 @@ export function generateSeedSql(transformedPlaces = [], transformedArticles = []
   }
 
   return lines.join('\n');
+}
+
+// Backward compatible export for tests
+export function generateSeedSql(transformedPlaces = [], transformedArticles = []) {
+  const placesSql = generatePlacesSeedSql(transformedPlaces);
+  if (!transformedArticles || transformedArticles.length === 0) {
+    return placesSql;
+  }
+  return placesSql + '\n\n' + generateArticlesMigrationSql(transformedArticles);
 }
 
 export async function run() {
@@ -380,6 +408,10 @@ export async function run() {
   const { places, articles } = await fetchUpstreamData();
   const transformedPlaces = transformPlaces(places);
   const transformedArticles = transformArticles(articles);
+
+  if (transformedPlaces.length === 0 || transformedArticles.length === 0) {
+    throw new Error('Dữ liệu upstream rỗng. Hủy ghi để bảo vệ cơ sở dữ liệu hiện tại.');
+  }
 
   const verifiedCount = transformedPlaces.filter((p) => p.sourceType === 'verified').length;
   const vrCount = transformedPlaces.filter((p) => p.sourceType === 'vr360').length;
@@ -393,19 +425,25 @@ export async function run() {
   console.log('- Fabricated opening hours: REMOVED (0 items)');
   console.log('- Fabricated GPS fallbacks: REMOVED (0 items)');
 
-  const sql = generateSeedSql(transformedPlaces, transformedArticles);
+  const placesSql = generatePlacesSeedSql(transformedPlaces);
+  const articlesSql = generateArticlesMigrationSql(transformedArticles);
 
   if (isDryRun) {
-    console.log('\n[Dry-Run] Không ghi dữ liệu vào disk. SQL preview:');
-    console.log(sql.split('\n').slice(0, 30).join('\n'));
-    console.log('... (bỏ qua phần còn lại)');
-    return { transformedPlaces, transformedArticles, sql };
+    console.log('\n[Dry-Run] Chế độ xem trước: Không sửa file hoặc database.');
+    console.log('[Dry-Run] 0002_seed.sql preview (30 dòng đầu):');
+    console.log(placesSql.split('\n').slice(0, 30).join('\n'));
+    console.log('... [Bỏ qua phần còn lại]');
+    return { transformedPlaces, transformedArticles, placesSql, articlesSql };
   }
 
   if (isApply) {
     const seedPath = path.join(REPO_ROOT, 'worker/migrations/0002_seed.sql');
-    fs.writeFileSync(seedPath, sql, 'utf8');
-    console.log(`\n[Apply] Đã cập nhật ${seedPath} (${sql.length} bytes / ${Math.round(sql.length / 1024)} KB).`);
+    fs.writeFileSync(seedPath, placesSql + '\n', 'utf8');
+    console.log(`\n[Apply] Đã cập nhật ${seedPath} (${placesSql.length} bytes / ${Math.round(placesSql.length / 1024)} KB).`);
+
+    const schemaPath = path.join(REPO_ROOT, 'worker/migrations/0003_schema_update.sql');
+    fs.writeFileSync(schemaPath, articlesSql + '\n', 'utf8');
+    console.log(`\n[Apply] Đã cập nhật ${schemaPath} (${articlesSql.length} bytes / ${Math.round(articlesSql.length / 1024)} KB).`);
 
     const knowledgeDir = path.join(REPO_ROOT, 'worker/src/data');
     if (!fs.existsSync(knowledgeDir)) {
@@ -414,9 +452,10 @@ export async function run() {
     const knowledgePath = path.join(knowledgeDir, 'articles-knowledge.json');
     fs.writeFileSync(knowledgePath, JSON.stringify(transformedArticles, null, 2), 'utf8');
     console.log(`[Apply] Đã lưu ${transformedArticles.length} bài viết vào ${knowledgePath}.`);
+    console.log('\n[Hướng dẫn] Áp dụng migration vào D1: npx wrangler d1 migrations apply dak-song-db --local');
   }
 
-  return { transformedPlaces, transformedArticles, sql };
+  return { transformedPlaces, transformedArticles, placesSql, articlesSql };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url).toLowerCase() === path.resolve(process.argv[1]).toLowerCase()) {

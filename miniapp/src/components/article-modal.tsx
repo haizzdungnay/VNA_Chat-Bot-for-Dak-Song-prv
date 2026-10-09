@@ -10,17 +10,22 @@ interface ArticleModalProps {
 
 export const ArticleModal: React.FC<ArticleModalProps> = ({ article, onClose }) => {
   const navigate = useNavigate();
-  if (!article) return null;
-
-  const handleAskAI = () => {
-    onClose();
-    navigate(`/chat?q=${encodeURIComponent(`Tìm hiểu thêm về "${article.title}"`)}&articleSlug=${encodeURIComponent(article.slug)}`);
-  };
 
   const sanitizedContent = React.useMemo(() => {
-    if (!article.content) return "<p>Nội dung đang được cập nhật...</p>";
+    if (!article?.content) return "<p>Nội dung đang được cập nhật...</p>";
     return sanitizeArticleHtml(article.content);
-  }, [article.content]);
+  }, [article?.content]);
+
+  const handleAskAI = React.useCallback(() => {
+    if (!article) return;
+    onClose();
+    navigate(
+      `/chat?q=${encodeURIComponent(`Tìm hiểu thêm về "${article.title}"`)}&articleSlug=${encodeURIComponent(article.slug)}`
+    );
+  }, [article, onClose, navigate]);
+
+  // Hook calls strictly unconditional above. Safe conditional render:
+  if (!article) return null;
 
   return (
     <div
