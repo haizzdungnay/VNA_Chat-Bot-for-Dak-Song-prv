@@ -4,17 +4,22 @@
   "private": true,
   "workspaces": [
     "miniapp",
-    "worker"
+    "worker",
+    "admin"
   ],
   "scripts": {
     "dev:miniapp": "npm --workspace miniapp run dev",
     "dev:worker": "npm --workspace worker run dev",
+    "dev:admin": "npm --workspace admin run dev",
     "build:miniapp": "npm --workspace miniapp run build",
     "build:worker": "npm --workspace worker run build",
+    "build:admin": "npm --workspace admin run build",
     "build": "npm run build:miniapp && npm run build:worker",
     "typecheck:miniapp": "npm --workspace miniapp run typecheck",
     "typecheck:worker": "npm --workspace worker run typecheck",
+    "typecheck:admin": "npm --workspace admin run typecheck",
     "typecheck": "npm run typecheck:miniapp && npm run typecheck:worker",
+    "test:admin": "npm --workspace admin run test",
     "test": "npm --workspace worker run test && npm --workspace miniapp run test"
   }
 }
