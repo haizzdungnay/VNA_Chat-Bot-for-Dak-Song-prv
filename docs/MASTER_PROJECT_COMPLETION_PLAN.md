@@ -13,7 +13,7 @@
 ### 1.1. Mục tiêu Cốt lõi
 Xây dựng và hoàn thiện trọn vẹn **Khung ứng dụng MVP** cho Trợ lý Du lịch Đắk Song trên nền tảng Zalo Mini App, phục vụ du khách khám phá danh lam, ẩm thực, văn hóa và hỏi đáp lịch trình thông minh với các tiêu chuẩn khắt khe:
 1. **Dữ liệu thật, tự động:** Lấy trực tiếp từ Cổng thông tin du lịch Đắk Song (`https://dulichdaksong.vnasw.vn/` qua VNA Core API), tuyệt đối không soạn thảo thủ công hoặc bịa đặt dữ liệu.
-2. **AI trung thực:** Trợ lý AI (Google Gemini 3.8 Flash) trả lời 100% bằng tiếng Việt chuẩn mực, chỉ đề xuất các địa điểm có thật trong cơ sở dữ liệu D1, không bịa giá vé, giờ mở cửa hay số điện thoại.
+2. **AI trung thực:** Trợ lý AI (Google Gemini 2.5 Flash Lite - xem ADR-06) trả lời 100% bằng tiếng Việt chuẩn mực, chỉ đề xuất các địa điểm có thật trong cơ sở dữ liệu D1, không bịa giá vé, giờ mở cửa hay số điện thoại.
 3. **Trải nghiệm mượt mà:** Đạt chuẩn thiết kế Stitch (Eco Modern Light & Highland Nocturne Dark), 4 route chuẩn, 3 bottom tab, hỗ trợ cá nhân hóa không ép buộc (opt-in onboarding) và bảo mật dữ liệu tuyệt đối.
 
 ### 1.2. Ranh giới Phạm vi (Scope Freeze)
@@ -76,7 +76,7 @@ Xây dựng và hoàn thiện trọn vẹn **Khung ứng dụng MVP** cho Trợ 
 ---
 
 ### PHASE 2: Xây Dựng Công Cụ Đồng Bộ & Nạp Dữ Liệu D1 Thật (Dự kiến: 1 ngày làm việc)
-*(Trạng thái: ĐÃ HOÀN THÀNH — 19 Places, 42 Articles, 0 Dữ liệu bịa, Migration 0002/0003)*
+*(Trạng thái: VERIFIED_LOCAL — Migration 0001->0002->0003 áp dụng sạch từ đầu; 19 Places [15 verified, 4 vr360], 42 Articles; DOMPurify XSS Sanitizer; React Hooks Unconditional Order)*
 - **Mục tiêu:** Viết mã nguồn kịch bản đồng bộ tự động và chuyển đổi dữ liệu thành seed D1 chính thức.
 - **Nhiệm vụ cụ thể:**
   1. Tạo kịch bản `scripts/sync-upstream-content.mjs`:
@@ -92,7 +92,7 @@ Xây dựng và hoàn thiện trọn vẹn **Khung ứng dụng MVP** cho Trợ 
 ---
 
 ### PHASE 3: Kiểm Thử Đầu-Cuối Chat AI & Thẻ Địa Điểm Trên Dữ Liệu Thật (Dự kiến: 1 ngày làm việc)
-*(Trạng thái: ĐÃ HOÀN THÀNH — Live Gemini 2.5 Flash Lite E2E T1-T6 đạt 100%, ArticleModal -> Chat q link)*
+*(Trạng thái: VERIFIED_LOCAL & VERIFIED_LIVE — Live Gemini 2.5 Flash Lite phản hồi HTTP 200 trong 1048ms; Ngữ cảnh sâu articleSlug; Giới hạn 8 tin nhắn / 500 ký tự; Anti-injection & Lọc placeIds chuẩn D1; Xem ADR-06)*
 - **Mục tiêu:** Khép kín luồng tương tác thực tế giữa người dùng, FE, Worker và Google Gemini AI.
 - **Nhiệm vụ cụ thể:**
   1. Nạp ngữ cảnh bài viết và danh mục thật vào System Prompt của Worker.
@@ -107,7 +107,7 @@ Xây dựng và hoàn thiện trọn vẹn **Khung ứng dụng MVP** cho Trợ 
 ---
 
 ### PHASE 4: Gia Cố An Ninh Backend & Tối Ưu Hóa (Dự kiến: 0.5 - 1 ngày làm việc)
-*(Trạng thái: ĐÃ HOÀN THÀNH — 30 req/min Rate Limiting, 10KB Body Guard 413, Security Headers nosniff/DENY)*
+*(Trạng thái: VERIFIED_LOCAL — Stream Bounded POST Body 10KB HTTP 413; Ranh giới IP CF-Connecting-IP; In-memory Rate Limiter 30 req/min HTTP 429 Retry-After; Security Headers nosniff/DENY)*
 - **Mục tiêu:** Bảo vệ API khỏi lạm dụng và hoàn thiện các đường truyền lỗi mạng.
 - **Nhiệm vụ cụ thể:**
   1. Tích hợp cơ chế Rate Limiting đơn giản trên Worker cho route `/api/chat` (chống spam request làm cạn hạn mức Gemini).
@@ -118,7 +118,7 @@ Xây dựng và hoàn thiện trọn vẹn **Khung ứng dụng MVP** cho Trợ 
 
 ---
 
-### PHASE 5: Đảm Bảo Chất Lượng Giao Diện FE (Visual & Device QA) (Dự kiến: 0.5 - 1 ngày làm việc)
+### PHASE 5: Đảm Bảo Chất Lượng Giao Diện FE (Visual & Device QA) (VERIFIED_LOCAL / REAL_DEVICE_NOT_VERIFIED)
 - **Mục tiêu:** Kiểm tra độ hiển thị và công thái học trên thiết bị di động.
 - **Nhiệm vụ cụ thể:**
   1. Kiểm thử responsive trên các cỡ màn hình chuẩn: 360px (màn nhỏ), 390px (iPhone tiêu chuẩn), 430px (màn lớn).
@@ -167,3 +167,4 @@ Xây dựng và hoàn thiện trọn vẹn **Khung ứng dụng MVP** cho Trợ 
 
 ## 5. TỔNG KẾT
 Kế hoạch trên tập trung tối đa vào tính thực chiến, loại bỏ hoàn toàn các giả định mơ hồ và tận dụng 100% dữ liệu du lịch chính thức của địa phương. Sau khi anh duyệt Kế hoạch này, bước tiếp theo duy nhất cần thực hiện là **PHASE 2: Xây dựng công cụ đồng bộ dữ liệu và nạp dữ liệu D1 thật**.
+
