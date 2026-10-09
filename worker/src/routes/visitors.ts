@@ -4,7 +4,17 @@ import { AdminService } from "../services/admin.service";
 import { ValidationError } from "../utils/errors";
 
 const ALLOWED_ADDRESS_AS = new Set(["anh", "chi", "em", "ban", "toi"]);
-const ALLOWED_AGE_GROUPS = new Set(["duoi-18", "18-24", "25-34", "35-44", "45-54", "55-tro-len"]);
+const ALLOWED_AGE_GROUPS = new Set([
+  "duoi-18",
+  "18-24",
+  "25-34",
+  "35-44",
+  "45-54",
+  "55-tro-len",
+  "under18",
+  "35-49",
+  "50plus",
+]);
 
 export const visitorConsentRoute: RouteHandler = async (req, _params, env) => {
   let body: any;

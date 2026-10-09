@@ -91,4 +91,21 @@ export const api = {
     });
     return handleResponse<ChatResponse>(res);
   },
+
+  async syncVisitorConsent(payload: {
+    consentToken: string;
+    displayName?: string;
+    addressAs?: string;
+    ageGroup?: string;
+    consentVersion: string;
+    optIn: boolean;
+  }): Promise<{ success: boolean; consented: boolean }> {
+    const res = await safeFetch(API_BASE_URL + "/api/visitors/consent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<{ success: boolean; consented: boolean }>(res);
+  },
 };
+

@@ -3,6 +3,7 @@ import type { AddressAs, AgeGroup } from "../types";
 export const STORAGE_KEY_PROFILE = "vna.daksong.personalization.v1";
 export const STORAGE_KEY_ONBOARDING_SEEN = "vna.daksong.onboardingSeen.v1";
 export const STORAGE_KEY_THEME = "vna.daksong.theme.v1";
+export const STORAGE_KEY_CONSENT_TOKEN = "vna.daksong.consentToken.v1";
 
 export const CHAT_SUGGESTION_CHIPS = [
   {

@@ -21,6 +21,7 @@ export const WelcomePersonalizationSheet: React.FC = () => {
   const [addressAs, setAddressAs] = useState<AddressAs>("ban");
   const [ageGroup, setAgeGroup] = useState<AgeGroup>(null);
   const [allowAIContext, setAllowAIContext] = useState<boolean>(false);
+  const [allowServerProfileStorage, setAllowServerProfileStorage] = useState<boolean>(false);
 
   // Sync state whenever sheet opens or profile changes
   useEffect(() => {
@@ -30,11 +31,13 @@ export const WelcomePersonalizationSheet: React.FC = () => {
         setAddressAs(profile.addressAs || "ban");
         setAgeGroup(profile.ageGroup ?? null);
         setAllowAIContext(Boolean(profile.allowAIContext));
+        setAllowServerProfileStorage(Boolean(profile.allowServerProfileStorage));
       } else {
         setDisplayName("");
         setAddressAs("ban");
         setAgeGroup(null);
         setAllowAIContext(false);
+        setAllowServerProfileStorage(false);
       }
     }
   }, [isWelcomeSheetOpen, profile]);
@@ -47,6 +50,7 @@ export const WelcomePersonalizationSheet: React.FC = () => {
       addressAs,
       ageGroup,
       allowAIContext,
+      allowServerProfileStorage,
     });
   };
 
@@ -321,6 +325,57 @@ export const WelcomePersonalizationSheet: React.FC = () => {
                 </span>
               </label>
             </div>
+
+            {/* Field 5: Server Profile Storage Opt-in Checkbox */}
+            <div
+              style={{
+                padding: "12px 14px",
+                borderRadius: "var(--radius-md)",
+                backgroundColor: "var(--color-surface-container)",
+                border: "1px solid var(--color-border)",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+              }}
+            >
+              <input
+                id="server-optin"
+                type="checkbox"
+                checked={allowServerProfileStorage}
+                onChange={(e) => setAllowServerProfileStorage(e.target.checked)}
+                style={{
+                  width: 18,
+                  height: 18,
+                  marginTop: 2,
+                  accentColor: "var(--color-primary)",
+                  cursor: "pointer",
+                }}
+              />
+              <label htmlFor="server-optin" style={{ cursor: "pointer", flex: 1 }}>
+                <span
+                  style={{
+                    display: "block",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--color-text-primary)",
+                    lineHeight: 1.35,
+                  }}
+                >
+                  Đồng ý chia sẻ thông tin xưng hô lên hệ thống để hỗ trợ thống kê khách tham quan
+                </span>
+                <span
+                  style={{
+                    display: "block",
+                    fontSize: 11,
+                    color: "var(--color-text-secondary)",
+                    lineHeight: 1.4,
+                    marginTop: 4,
+                  }}
+                >
+                  Tùy chọn tự nguyện. Chỉ lưu tên/biệt danh, cách xưng hô và nhóm tuổi ẩn danh. Không thu thập số điện thoại, định vị hay ID Zalo.
+                </span>
+              </label>
+            </div>
           </div>
 
           {/* Action Buttons */}
@@ -377,3 +432,4 @@ export const WelcomePersonalizationSheet: React.FC = () => {
     </div>
   );
 };
+

@@ -6,6 +6,18 @@ interface VisitorsPageProps {
   isLoading: boolean;
 }
 
+const AGE_LABELS: Record<string, string> = {
+  under18: "Dưới 18 tuổi",
+  "duoi-18": "Dưới 18 tuổi",
+  "18-24": "18 – 24 tuổi",
+  "25-34": "25 – 34 tuổi",
+  "35-49": "35 – 49 tuổi",
+  "35-44": "35 – 44 tuổi",
+  "45-54": "45 – 54 tuổi",
+  "50plus": "Trên 50 tuổi",
+  "55-tro-len": "Trên 55 tuổi",
+};
+
 export const VisitorsPage: React.FC<VisitorsPageProps> = ({ visitors, isLoading }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [ageFilter, setAgeFilter] = useState("all");
@@ -15,7 +27,11 @@ export const VisitorsPage: React.FC<VisitorsPageProps> = ({ visitors, isLoading 
       !searchTerm ||
       (v.displayName && v.displayName.toLowerCase().includes(searchTerm.toLowerCase())) ||
       v.id.includes(searchTerm);
-    const matchAge = ageFilter === "all" || v.ageGroup === ageFilter;
+    const matchAge =
+      ageFilter === "all" ||
+      v.ageGroup === ageFilter ||
+      (ageFilter === "under18" && v.ageGroup === "duoi-18") ||
+      (ageFilter === "50plus" && v.ageGroup === "55-tro-len");
     return matchName && matchAge;
   });
 
@@ -52,12 +68,11 @@ export const VisitorsPage: React.FC<VisitorsPageProps> = ({ visitors, isLoading 
               onChange={(e) => setAgeFilter(e.target.value)}
             >
               <option value="all">Tất cả nhóm tuổi</option>
-              <option value="duoi-18">&lt; 18 tuổi</option>
-              <option value="18-24">18 - 24 tuổi</option>
-              <option value="25-34">25 - 34 tuổi</option>
-              <option value="35-44">35 - 44 tuổi</option>
-              <option value="45-54">45 - 54 tuổi</option>
-              <option value="55-tro-len">55+ tuổi</option>
+              <option value="under18">Dưới 18 tuổi</option>
+              <option value="18-24">18 – 24 tuổi</option>
+              <option value="25-34">25 – 34 tuổi</option>
+              <option value="35-49">35 – 49 tuổi</option>
+              <option value="50plus">Trên 50 tuổi</option>
             </select>
           </div>
         </div>
@@ -92,7 +107,7 @@ export const VisitorsPage: React.FC<VisitorsPageProps> = ({ visitors, isLoading 
                     </td>
                     <td><strong>{item.displayName || "Chưa đặt tên"}</strong></td>
                     <td>{item.addressAs || "bạn"}</td>
-                    <td>{item.ageGroup || "Không rõ"}</td>
+                    <td>{item.ageGroup ? AGE_LABELS[item.ageGroup] || item.ageGroup : "Không rõ"}</td>
                     <td>
                       <span className="badge badge-neutral">v{item.consentVersion}</span>
                     </td>
