@@ -1,4 +1,4 @@
-import type { ChatRequest, ChatResponse, Env } from "../types";
+import type { ChatRequest, ChatResponse, Env, Article } from "../types";
 import { PlaceRepository } from "../repositories/place.repository";
 import { ArticleRepository } from "../repositories/article.repository";
 import { createAIProvider } from "./ai";
@@ -12,7 +12,9 @@ export class ChatService {
   private placeRepo: PlaceRepository;
   private articleRepo: ArticleRepository;
 
-  constructor(private env: Env) {
+  private env: Env;
+  constructor(env: Env) {
+    this.env = env;
     this.placeRepo = new PlaceRepository(env.DB);
     this.articleRepo = new ArticleRepository(env.DB);
   }
@@ -31,6 +33,15 @@ export class ChatService {
     }
     if (rawMessage.length > MAX_MESSAGE_LENGTH) {
       throw new ValidationError(`Tin nhắn vượt quá giới hạn ${MAX_MESSAGE_LENGTH} ký tự`);
+    }
+
+    if (body.articleSlug !== undefined) {
+      if (typeof body.articleSlug !== "string") {
+        throw new ValidationError("articleSlug phải là chuỗi văn bản");
+      }
+      if (body.articleSlug.length > 200) {
+        throw new ValidationError("articleSlug không được vượt quá 200 ký tự");
+      }
     }
 
     if (body.history !== undefined) {
@@ -64,7 +75,14 @@ export class ChatService {
       this.articleRepo.findAll({ limit: 42 }),
     ]);
 
-    // Thuật toán tìm bài viết liên quan dựa trên từ khóa câu hỏi
+    // Tìm bài viết theo articleSlug nếu người dùng hỏi từ trang bài viết
+    let targetedArticle: Article | undefined;
+    if (typeof body.articleSlug === "string" && body.articleSlug.trim()) {
+      const cleanSlug = body.articleSlug.trim();
+      targetedArticle = articles.find((a) => a.slug === cleanSlug);
+    }
+
+    // Thuật toán tìm bài viết liên quan dựa trên từ khóa câu hỏi & nội dung sâu
     const cleanHtml = (str: string) => str.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
     const queryTerms = rawMessage
       .toLowerCase()
@@ -75,12 +93,17 @@ export class ChatService {
       .filter((t) => t.length >= 2);
 
     const scoredArticles = articles.map((a) => {
+      if (targetedArticle && a.id === targetedArticle.id) {
+        return { article: a, score: 999 };
+      }
       const normTitle = (a.title || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "d");
       const normQuote = (a.quote || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "d");
+      const normContent = cleanHtml(a.content || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "d");
       let score = 0;
       for (const term of queryTerms) {
-        if (normTitle.includes(term)) score += 3;
-        if (normQuote.includes(term)) score += 1;
+        if (normTitle.includes(term)) score += 4;
+        if (normQuote.includes(term)) score += 2;
+        if (normContent.includes(term)) score += 1;
       }
       return { article: a, score };
     });
@@ -99,10 +122,11 @@ export class ChatService {
 
     const relevantArticlesContext = topRelevantArticles.length > 0
       ? topRelevantArticles
-          .map(
-            (a) =>
-              `- Tiêu đề: "${a.title}" (${a.categoryName})\n  Tóm tắt: ${a.quote || ""}\n  Nội dung: ${cleanHtml(a.content || "").slice(0, 800)}`
-          )
+          .map((a) => {
+            const isTargeted = targetedArticle && a.id === targetedArticle.id;
+            const contentLimit = isTargeted ? 1500 : 800;
+            return `- Tiêu đề: "${a.title}" (${a.categoryName})${isTargeted ? " [BÀI VIẾT ĐƯỢC CHỈ ĐỊNH ĐÍCH]" : ""}\n  Tóm tắt: ${a.quote || "Không có tóm tắt"}\n  Nội dung trích đoạn: ${cleanHtml(a.content || "").slice(0, contentLimit)}`;
+          })
           .join("\n\n")
       : "Không có bài viết trích đoạn khớp trực tiếp.";
 

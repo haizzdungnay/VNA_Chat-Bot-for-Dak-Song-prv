@@ -79,8 +79,16 @@ export class OpenAICompatibleProvider implements AIProvider {
       }
 
       if (response && (response.status === 429 || response.status === 503) && attempt === 0) {
-        console.warn(`[OpenAICompatibleProvider] transient upstream ${response.status}, retrying in 1200ms...`);
-        if (retryDelayMs > 0) await new Promise((r) => setTimeout(r, retryDelayMs));
+        const retryHeader = response.headers.get("retry-after");
+        let effectiveDelay = retryDelayMs;
+        if (retryHeader) {
+          const parsedSec = parseInt(retryHeader, 10);
+          if (!isNaN(parsedSec) && parsedSec > 0 && parsedSec <= 5) {
+            effectiveDelay = parsedSec * 1000;
+          }
+        }
+        console.warn(`[OpenAICompatibleProvider] transient upstream ${response.status}, retrying in ${effectiveDelay}ms...`);
+        if (effectiveDelay > 0) await new Promise((r) => setTimeout(r, effectiveDelay));
         continue;
       }
       break;
@@ -129,7 +137,7 @@ export class OpenAICompatibleProvider implements AIProvider {
     }
 
     try {
-      const cleaned = trimmed.replace(/^``(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+      const cleaned = trimmed.replace(/^\`\`\`(?:json)?\s*/i, "").replace(/\s*\`\`\`$/i, "");
       const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);

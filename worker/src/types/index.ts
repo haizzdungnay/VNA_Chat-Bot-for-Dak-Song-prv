@@ -62,6 +62,7 @@ export interface ChatMessage {
 export interface ChatRequest {
   message: string;
   history?: ChatMessage[];
+  articleSlug?: string;
 }
 
 export interface ChatResponse {

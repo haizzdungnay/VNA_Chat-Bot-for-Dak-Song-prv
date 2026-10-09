@@ -24,6 +24,8 @@ export interface Place {
   phone?: string;
   website?: string;
   isFeatured: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Article {
@@ -36,6 +38,7 @@ export interface Article {
   imageUrl?: string;
   publishDate?: string;
   viewCount?: number;
+  createdAt?: string;
 }
 
 export interface ChatMessage {
@@ -44,11 +47,13 @@ export interface ChatMessage {
   content: string;
   placeIds?: string[];
   timestamp?: string;
+  isFailed?: boolean;
 }
 
 export interface ChatRequest {
   message: string;
   history?: { role: "user" | "assistant"; content: string }[];
+  articleSlug?: string;
 }
 
 export interface ChatResponse {
