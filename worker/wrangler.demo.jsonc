@@ -12,16 +12,18 @@
       "binding": "DB",
       "database_name": "dak-song-db-staging",
       "database_id": "9c1d6303-7245-4baf-a3d4-114b63f8002a",
-      "migrations_dir": "migrations",
-      "migrations_pattern": "migrations/000[1-3]_*.sql"
+      "migrations_dir": "migrations"
     }
   ],
   "vars": {
     "AI_PROVIDER": "openai-compatible",
-    "AI_BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai",
-    "AI_MODEL": "gemini-flash-lite-latest",
+    "AI_BASE_URL": "https://rrdf59c.abc-tunnel.us/v1",
+    "AI_MODEL": "ag/gemini-3.8-flash-low",
     "AI_REASONING_EFFORT": "low",
     "AI_JSON_MODE": "false",
+    "ALLOWED_AI_HOSTS": "*",
+    "ADMIN_DEV_MOCK_AUTH": "true",
     "CORS_ALLOW_ORIGIN": "*"
   }
 }
+

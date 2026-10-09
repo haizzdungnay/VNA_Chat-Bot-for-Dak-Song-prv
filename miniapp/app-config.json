@@ -1,10 +1,18 @@
 {
+  "listCSS": [
+    "assets/index-DzFQOEIO.css"
+  ],
+  "listSyncJS": [
+    "assets/index.Cz6KkolO.module.js"
+  ],
+  "pages": [],
+  "listAsyncJS": [],
   "app": {
-    "title": "Du lịch Đắk Song",
     "headerTitle": "Du lịch Đắk Song",
-    "headerColor": "#1F5D42",
-    "textColor": "white",
+    "leftButton": "none",
     "statusBar": "transparent",
-    "leftButton": "none"
+    "title": "Du lịch Đắk Song",
+    "headerColor": "#1F5D42",
+    "textColor": "white"
   }
 }
