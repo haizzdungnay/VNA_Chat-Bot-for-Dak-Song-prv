@@ -28,7 +28,7 @@ test("Security headers are present in responses", () => {
   assert.equal(res.headers.get("X-Frame-Options"), "DENY");
 });
 
-test("Worker blocks oversized POST payloads with 413", async () => {
+test("Worker blocks oversized POST payloads with 413 when Content-Length header is present", async () => {
   const req = new Request("http://localhost/api/chat", {
     method: "POST",
     headers: {
@@ -44,14 +44,66 @@ test("Worker blocks oversized POST payloads with 413", async () => {
   assert.match(body.error, /vượt quá giới hạn/);
 });
 
+test("Worker blocks oversized POST body > 10KB even WITHOUT Content-Length header", async () => {
+  const largePayload = JSON.stringify({ message: "A".repeat(11000) });
+  const headers = new Headers();
+  headers.set("Content-Type", "application/json");
+  // Omit Content-Length header completely
+
+  const req = new Request("http://localhost/api/chat", {
+    method: "POST",
+    headers,
+    body: largePayload,
+  });
+  // Delete header if environment auto-set it
+  req.headers.delete("content-length");
+
+  const res = await worker.fetch(req, { CORS_ALLOW_ORIGIN: "*" }, {});
+  assert.equal(res.status, 413, "Must return 413 when body exceeds 10KB without header");
+  const body = await res.json();
+  assert.match(body.error, /vượt quá giới hạn/);
+});
+
+test("Worker blocks oversized POST body when Content-Length header is falsely under-reported", async () => {
+  const largePayload = JSON.stringify({ message: "B".repeat(11000) });
+  const req = new Request("http://localhost/api/chat", {
+    method: "POST",
+    headers: {
+      "Content-Length": "50", // Falsely under-reported
+      "Content-Type": "application/json",
+    },
+    body: largePayload,
+  });
+
+  const res = await worker.fetch(req, { CORS_ALLOW_ORIGIN: "*" }, {});
+  assert.equal(res.status, 413, "Must return 413 when actual streamed bytes exceed 10KB");
+});
+
+test("Worker allows valid body under 10KB with multibyte UTF-8 Vietnamese characters", async () => {
+  const vietnamesePayload = JSON.stringify({
+    message: "Đắk Song có Thác Lưu Ly tuyệt đẹp giữa đại ngàn Tây Nguyên hùng vĩ."
+  });
+
+  const req = new Request("http://localhost/api/chat", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "CF-Connecting-IP": "172.16.0.1",
+    },
+    body: vietnamesePayload,
+  });
+
+  // ChatRoute will fail gracefully with AI error / mock, but NOT 413
+  const res = await worker.fetch(req, { CORS_ALLOW_ORIGIN: "*" }, {});
+  assert.notEqual(res.status, 413, "Valid Vietnamese payload under 10KB must not trigger 413");
+});
+
 test("Worker blocks chat endpoint when rate limit is exceeded with 429 and Retry-After", async () => {
   const env = { CORS_ALLOW_ORIGIN: "*" };
-  // Simulate 30 rapid hits on rate limiter for client IP 10.0.0.1
   for (let i = 0; i < 30; i++) {
     chatRateLimiter.check("10.0.0.1");
   }
 
-  // 31st request must receive 429
   const blockedReq = new Request("http://localhost/api/chat", {
     method: "POST",
     headers: {
