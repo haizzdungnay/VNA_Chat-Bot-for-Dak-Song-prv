@@ -1,7 +1,8 @@
-import type { ChatRequest, ChatResponse, Env, Article } from "../types";
+import type { ChatRequest, ChatResponse, Env, Article, AIProvider } from "../types";
 import { PlaceRepository } from "../repositories/place.repository";
 import { ArticleRepository } from "../repositories/article.repository";
 import { createAIProvider } from "./ai";
+import { AdminService } from "./admin.service";
 import { TRAVEL_ASSISTANT_SYSTEM_PROMPT } from "../prompts/travel-assistant";
 import { ValidationError } from "../utils/errors";
 
@@ -149,14 +150,54 @@ ${allArticlesCatalog}
 
 === KẾT THÚC KHO TRI THỨC ĐẮK SONG ===`;
 
-    const aiProvider = createAIProvider(this.env);
-    const result = await aiProvider.chat({
-      systemPrompt,
-      message: rawMessage,
-      history: sanitizedHistory,
-      contextPlaces: places,
-      contextArticles: articles,
-    });
+    // Phase 5A: Dynamic AI Configuration Resolver with Safe Fallback
+    let runtimeEnv: Env = this.env;
+    const isFeatureEnabled =
+      this.env.ADMIN_AI_CONFIG_ENABLED === "true" ||
+      this.env.ADMIN_AI_CONFIG_ENABLED === true;
+
+    if (isFeatureEnabled) {
+      try {
+        const adminService = new AdminService(this.env);
+        const dynamicConfig = await adminService.getActiveRuntimeConfig();
+        if (dynamicConfig) {
+          runtimeEnv = {
+            ...this.env,
+            AI_PROVIDER: dynamicConfig.providerType,
+            AI_BASE_URL: dynamicConfig.baseUrl,
+            AI_MODEL: dynamicConfig.model,
+            AI_API_KEY: dynamicConfig.apiKey,
+            AI_REASONING_EFFORT: dynamicConfig.reasoningEffort,
+            AI_JSON_MODE: dynamicConfig.jsonMode ? "true" : "false",
+          };
+        }
+      } catch {
+        runtimeEnv = this.env;
+      }
+    }
+
+    const startTime = Date.now();
+    let result: ChatResponse;
+    const adminService = new AdminService(this.env);
+
+    try {
+      const aiProvider: AIProvider = createAIProvider(runtimeEnv);
+      result = await aiProvider.chat({
+        systemPrompt,
+        message: rawMessage,
+        history: sanitizedHistory,
+        contextPlaces: places,
+        contextArticles: articles,
+      });
+
+      const duration = Date.now() - startTime;
+      await adminService.logTelemetryEvent("chat_request", 200, duration);
+    } catch (err: any) {
+      const duration = Date.now() - startTime;
+      const statusCode = err?.status || 500;
+      await adminService.logTelemetryEvent("chat_error", statusCode, duration, err?.message || "AI Error");
+      throw err;
+    }
 
     // Lọc lại placeIds chỉ giữ các ID thực sự có trong database
     const validIds = new Set(places.map((p) => p.id));
@@ -170,3 +211,4 @@ ${allArticlesCatalog}
     };
   }
 }
+
