@@ -4,7 +4,7 @@ export function getCorsHeaders(env?: Env): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": env?.CORS_ALLOW_ORIGIN || "*",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, Cf-Access-Jwt-Assertion",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, Cf-Access-Jwt-Assertion, Cache-Control",
     "Access-Control-Max-Age": "86400",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
