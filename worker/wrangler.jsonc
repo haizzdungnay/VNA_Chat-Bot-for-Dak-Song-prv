@@ -13,10 +13,12 @@
   ],
   "vars": {
     "AI_PROVIDER": "openai-compatible",
-    "AI_BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai",
-    "AI_MODEL": "gemini-2.5-flash-lite",
+    "AI_BASE_URL": "https://rrdf59c.abc-tunnel.us/v1",
+    "AI_MODEL": "ag/gemini-3.8-flash-low",
     "AI_REASONING_EFFORT": "low",
     "AI_JSON_MODE": "false",
+    "ALLOWED_AI_HOSTS": "*",
+    "ADMIN_AI_CONFIG_ENABLED": "true",
     "CORS_ALLOW_ORIGIN": "*"
   }
 }

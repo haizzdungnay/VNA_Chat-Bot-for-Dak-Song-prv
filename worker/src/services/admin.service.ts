@@ -251,6 +251,7 @@ export class AdminService {
         model: profile.model,
         messages: [{ role: "user", content: "ping" }],
         max_tokens: 1,
+        stream: false,
       };
 
       const res = await fetch(testUrl, {

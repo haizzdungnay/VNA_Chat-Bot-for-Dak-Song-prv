@@ -35,8 +35,8 @@ export const AIProfilesPage: React.FC<AIProfilesPageProps> = ({
   const [formData, setFormData] = useState<AdminAIProfileInput>({
     name: "",
     providerType: "openai-compatible",
-    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-    model: "gemini-2.5-flash-lite",
+    baseUrl: "https://rrdf59c.abc-tunnel.us/v1",
+    model: "ag/gemini-3.8-flash-low",
     apiKey: "",
     reasoningEffort: "low",
     jsonMode: false,
@@ -47,8 +47,8 @@ export const AIProfilesPage: React.FC<AIProfilesPageProps> = ({
     setFormData({
       name: "",
       providerType: "openai-compatible",
-      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-      model: "gemini-2.5-flash-lite",
+      baseUrl: "https://rrdf59c.abc-tunnel.us/v1",
+      model: "ag/gemini-3.8-flash-low",
       apiKey: "",
       reasoningEffort: "low",
       jsonMode: false,

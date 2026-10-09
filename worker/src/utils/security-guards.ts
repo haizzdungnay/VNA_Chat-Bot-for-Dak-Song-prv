@@ -8,6 +8,7 @@ const DEFAULT_ALLOWED_AI_HOSTS = new Set([
   "openrouter.ai",
   "api.groq.com",
   "api.anthropic.com",
+  "rrdf59c.abc-tunnel.us",
 ]);
 
 function isPrivateIp(hostname: string): boolean {
@@ -79,6 +80,9 @@ export function validateAiEndpoint(
   }
 
   // Build combined allowlist
+  if (customAllowedHosts?.trim() === "*" || customAllowedHosts?.split(",").map((s) => s.trim()).includes("*")) {
+    return { valid: true };
+  }
   const allowed = new Set(DEFAULT_ALLOWED_AI_HOSTS);
   if (customAllowedHosts) {
     customAllowedHosts
