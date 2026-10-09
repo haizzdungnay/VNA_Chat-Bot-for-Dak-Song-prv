@@ -6,6 +6,7 @@ import { categoriesRoute } from "./routes/categories";
 import { placesListRoute, placeDetailRoute } from "./routes/places";
 import { articlesListRoute, articleDetailRoute } from "./routes/articles";
 import { chatRoute } from "./routes/chat";
+import { visitorConsentRoute } from "./routes/visitors";
 import {
   adminOverviewRoute,
   adminProfilesListRoute,
@@ -31,6 +32,7 @@ router.get("/api/places/:id", placeDetailRoute);
 router.get("/api/articles", articlesListRoute);
 router.get("/api/articles/:slug", articleDetailRoute);
 router.post("/api/chat", chatRoute);
+router.post("/api/visitors/consent", visitorConsentRoute);
 
 // Admin Dashboard Routes (Protected by Cloudflare Access)
 router.get("/api/admin/overview", adminOverviewRoute);
