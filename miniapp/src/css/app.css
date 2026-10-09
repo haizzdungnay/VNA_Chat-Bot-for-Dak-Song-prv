@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Material Symbols Outlined";
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: block;
+  src: url("../assets/fonts/MaterialSymbolsOutlined.woff2") format("woff2");
+}
+
 /* ==========================================================================
    VNA Đắk Song Zalo Mini App - Design System
    Eco Modern (Light) & Highland Nocturne (Dark)

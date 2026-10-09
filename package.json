@@ -20,6 +20,7 @@
     "typecheck:admin": "npm --workspace admin run typecheck",
     "typecheck": "npm run typecheck:miniapp && npm run typecheck:worker",
     "test:admin": "npm --workspace admin run test",
-    "test": "npm --workspace worker run test && npm --workspace miniapp run test"
+    "test": "npm --workspace worker run test && npm --workspace miniapp run test",
+    "sync:visitors": "node scripts/sync-d1-visitors.mjs"
   }
 }
