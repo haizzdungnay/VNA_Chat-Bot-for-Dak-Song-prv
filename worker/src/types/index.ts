@@ -145,6 +145,11 @@ export interface VisitorProfileRow {
   consented_at: string;
   updated_at: string;
   deleted_at: string | null;
+  displayName?: string | null;
+  addressAs?: string | null;
+  ageGroup?: string | null;
+  consentVersion?: string;
+  consentedAt?: string;
 }
 
 export interface AdminTelemetryEventRow {
@@ -156,4 +161,6 @@ export interface AdminTelemetryEventRow {
   error_type: string | null;
   created_at: string;
 }
+
+
 

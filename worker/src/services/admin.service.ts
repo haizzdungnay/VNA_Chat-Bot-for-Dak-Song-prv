@@ -365,7 +365,7 @@ export class AdminService {
        LIMIT 100`
     ).all<VisitorProfileRow>();
 
-    return results || [];
+    return (results || []).map((row) => ({ ...row, displayName: row.display_name, addressAs: row.address_as, ageGroup: row.age_group, consentVersion: row.consent_version, consentedAt: row.consented_at, updatedAt: row.updated_at }));
   }
 
   async saveVisitorConsent(profile: {
@@ -505,4 +505,5 @@ export class AdminService {
     };
   }
 }
+
 

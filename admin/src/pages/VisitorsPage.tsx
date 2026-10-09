@@ -18,20 +18,31 @@ const AGE_LABELS: Record<string, string> = {
   "55-tro-len": "Trên 55 tuổi",
 };
 
+const ADDRESS_LABELS: Record<string, string> = {
+  anh: "Anh",
+  chi: "Chị",
+  ban: "Bạn",
+  em: "Em",
+  toi: "Tôi",
+};
+
 export const VisitorsPage: React.FC<VisitorsPageProps> = ({ visitors, isLoading }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [ageFilter, setAgeFilter] = useState("all");
 
   const filtered = visitors.filter((v) => {
+    const name = v.displayName || v.display_name || "";
+    const id = v.id || "";
     const matchName =
       !searchTerm ||
-      (v.displayName && v.displayName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      v.id.includes(searchTerm);
+      name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      id.includes(searchTerm);
+    const age = v.ageGroup || v.age_group;
     const matchAge =
       ageFilter === "all" ||
-      v.ageGroup === ageFilter ||
-      (ageFilter === "under18" && v.ageGroup === "duoi-18") ||
-      (ageFilter === "50plus" && v.ageGroup === "55-tro-len");
+      age === ageFilter ||
+      (ageFilter === "under18" && age === "duoi-18") ||
+      (ageFilter === "50plus" && age === "55-tro-len");
     return matchName && matchAge;
   });
 
@@ -100,22 +111,36 @@ export const VisitorsPage: React.FC<VisitorsPageProps> = ({ visitors, isLoading 
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((item) => (
-                  <tr key={item.id}>
-                    <td>
-                      <code>{item.id.slice(0, 8)}...{item.id.slice(-4)}</code>
-                    </td>
-                    <td><strong>{item.displayName || "Chưa đặt tên"}</strong></td>
-                    <td>{item.addressAs || "bạn"}</td>
-                    <td>{item.ageGroup ? AGE_LABELS[item.ageGroup] || item.ageGroup : "Không rõ"}</td>
-                    <td>
-                      <span className="badge badge-neutral">v{item.consentVersion}</span>
-                    </td>
-                    <td style={{ color: "var(--text-muted)" }}>
-                      {new Date(item.consentedAt).toLocaleString("vi-VN")}
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map((item) => {
+                  const displayName = item.displayName || item.display_name || "Chưa đặt tên";
+                  const rawAddress = item.addressAs || item.address_as;
+                  const addressAs = rawAddress ? ADDRESS_LABELS[rawAddress] || rawAddress : "Bạn";
+                  const rawAge = item.ageGroup || item.age_group;
+                  const ageGroup = rawAge ? AGE_LABELS[rawAge] || rawAge : "Không chia sẻ";
+                  const consentVersion = item.consentVersion || item.consent_version || "1.0";
+                  const dateStr = item.consentedAt || item.consented_at;
+
+                  return (
+                    <tr key={item.id}>
+                      <td>
+                        <code>{item.id.slice(0, 8)}...{item.id.slice(-4)}</code>
+                      </td>
+                      <td>
+                        <strong style={{ color: "var(--primary)" }}>{displayName}</strong>
+                      </td>
+                      <td>
+                        <span className="badge badge-neutral">{addressAs}</span>
+                      </td>
+                      <td>{ageGroup}</td>
+                      <td>
+                        <span className="badge badge-neutral">v{consentVersion}</span>
+                      </td>
+                      <td style={{ color: "var(--text-muted)" }}>
+                        {dateStr ? new Date(dateStr).toLocaleString("vi-VN") : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

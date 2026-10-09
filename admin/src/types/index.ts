@@ -28,11 +28,17 @@ export interface AdminAIProfileInput {
 export interface VisitorConsentProfile {
   id: string;
   displayName?: string | null;
+  display_name?: string | null;
   addressAs?: string | null;
+  address_as?: string | null;
   ageGroup?: string | null;
-  consentVersion: string;
-  consentedAt: string;
-  updatedAt: string;
+  age_group?: string | null;
+  consentVersion?: string;
+  consent_version?: string;
+  consentedAt?: string;
+  consented_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
 }
 
 export interface AuditLogItem {
