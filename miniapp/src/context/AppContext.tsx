@@ -4,8 +4,10 @@ import {
   STORAGE_KEY_PROFILE,
   STORAGE_KEY_ONBOARDING_SEEN,
   STORAGE_KEY_THEME,
+  STORAGE_KEY_CONSENT_TOKEN,
 } from "../constants";
 import { safeStorage } from "../services/storage";
+import { api } from "../services/api";
 
 const DEFAULT_WELCOME_MESSAGE: ChatMessage = {
   id: "welcome",
@@ -28,6 +30,7 @@ interface AppContextValue {
     addressAs: PersonalizationProfile["addressAs"];
     ageGroup: PersonalizationProfile["ageGroup"];
     allowAIContext: boolean;
+    allowServerProfileStorage?: boolean;
   }) => void;
   deleteProfile: () => void;
   dismissOnboarding: () => void;
@@ -61,6 +64,18 @@ function resolveSystemTheme(): "light" | "dark" {
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
   return "light";
+}
+
+function getOrCreateConsentToken(): string {
+  let token = safeStorage.getItem(STORAGE_KEY_CONSENT_TOKEN);
+  if (!token || token.length < 8) {
+    token =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : "anon-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    safeStorage.setItem(STORAGE_KEY_CONSENT_TOKEN, token);
+  }
+  return token;
 }
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -136,25 +151,67 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addressAs: PersonalizationProfile["addressAs"];
       ageGroup: PersonalizationProfile["ageGroup"];
       allowAIContext: boolean;
+      allowServerProfileStorage?: boolean;
     }) => {
       const sanitizedName = data.displayName?.trim().slice(0, 32);
+      const consentToken = getOrCreateConsentToken();
+      const allowServer = Boolean(data.allowServerProfileStorage);
+
       const newProfile: PersonalizationProfile = {
         displayName: sanitizedName || undefined,
         addressAs: data.addressAs,
         ageGroup: data.ageGroup,
         allowAIContext: Boolean(data.allowAIContext),
+        allowServerProfileStorage: allowServer,
+        consentToken,
         updatedAt: new Date().toISOString(),
       };
+
       setProfile(newProfile);
       safeStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(newProfile));
       setOnboardingSeen(true);
       safeStorage.setItem(STORAGE_KEY_ONBOARDING_SEEN, "true");
       setIsWelcomeSheetOpen(false);
+
+      // Đồng bộ đồng thuận lên máy chủ khi người dùng opt-in riêng
+      if (allowServer) {
+        api
+          .syncVisitorConsent({
+            consentToken,
+            displayName: sanitizedName || undefined,
+            addressAs: data.addressAs,
+            ageGroup: data.ageGroup ?? undefined,
+            consentVersion: "1.0",
+            optIn: true,
+          })
+          .catch(() => {
+            // Không làm gián đoạn trải nghiệm người dùng nếu mạng yếu
+          });
+      } else {
+        // Nếu người dùng không chọn lưu server, rút lại nếu đã từng lưu
+        api
+          .syncVisitorConsent({
+            consentToken,
+            consentVersion: "1.0",
+            optIn: false,
+          })
+          .catch(() => {});
+      }
     },
     []
   );
 
   const deleteProfile = useCallback(() => {
+    const token = safeStorage.getItem(STORAGE_KEY_CONSENT_TOKEN);
+    if (token) {
+      api
+        .syncVisitorConsent({
+          consentToken: token,
+          consentVersion: "1.0",
+          optIn: false,
+        })
+        .catch(() => {});
+    }
     setProfile(null);
     safeStorage.removeItem(STORAGE_KEY_PROFILE);
     setIsWelcomeSheetOpen(false);
@@ -209,3 +266,4 @@ export const useApp = (): AppContextValue => {
   }
   return ctx;
 };
+

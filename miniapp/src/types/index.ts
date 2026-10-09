@@ -69,7 +69,10 @@ export interface PersonalizationProfile {
   addressAs: AddressAs;
   ageGroup: AgeGroup;
   allowAIContext: boolean;
+  allowServerProfileStorage?: boolean;
+  consentToken?: string;
   updatedAt: string;
 }
 
 export type ThemeMode = "light" | "dark" | "system";
+

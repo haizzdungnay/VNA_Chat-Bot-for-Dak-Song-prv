@@ -54,3 +54,20 @@
 - **Tỉ lệ đạt:** 43 / 43 (100% PASS).
 - **TypeScript Typecheck:** 0 lỗi (cả `miniapp` và `worker`).
 - **Production Build:** Thành công 100% (`vite build` tạo bundle `www/`, `wrangler deploy --dry-run` PASS).
+
+## 2. TIÊU CHÍ NGHIỆM THU PHASE 5A: ADMIN DASHBOARD & SECURE DYNAMIC CONFIG
+
+| Mã ID | Mô-đun / Hạng mục | Điều kiện kiểm thử / Đầu vào | Hành vi & Kết quả kỳ vọng | Trạng thái thực tế | Bằng chứng kiểm tra / Lệnh xác minh | Ưu tiên |
+| :---: | :--- | :--- | :--- | :---: | :--- | :---: |
+| **TC-ADM-01** | Admin Workspace Scaffold | Build & Typecheck riêng biệt `admin/` | Ứng dụng Desktop-first độc lập, không ảnh hưởng `miniapp/` | **VERIFIED_LOCAL** | `npm run build:admin`, `npm run typecheck:admin` (PASS) | P0 |
+| **TC-ADM-02** | Cloudflare Access Auth | Gọi API `/api/admin/*` không có token | Fail-Closed: Trả về HTTP 401 Unauthorized, chặn 100% public access | **VERIFIED_LOCAL** | `worker/test/admin-backend.test.mjs` (PASS) | P0 |
+| **TC-ADM-03** | Single Admin Allowlist | Gọi API với email khác danh sách cho phép | Trả về HTTP 403 Forbidden | **VERIFIED_LOCAL** | `worker/test/admin-backend.test.mjs` (PASS) | P0 |
+| **TC-ADM-04** | AES-256-GCM Envelope Encryption | Lưu API Key profile vào D1 | Mã hóa bằng Web Crypto AES-256-GCM với nonce 12 bytes ngẫu nhiên | **VERIFIED_LOCAL** | `worker/test/admin-backend.test.mjs` (PASS) | P0 |
+| **TC-ADM-05** | API Key Masking & Concealment | Đọc danh sách cấu hình AI qua API | Chỉ trả về 4 ký tự cuối (`key_suffix`), không bao giờ lộ plaintext | **VERIFIED_LOCAL** | `admin/test/admin-ui.test.mjs` & backend test (PASS) | P0 |
+| **TC-ADM-06** | SSRF & AI Host Guard | Thử thêm endpoint IP private / loopback / HTTP | Bị chặn và báo lỗi rõ ràng; chỉ cho phép HTTPS và host tin cậy | **VERIFIED_LOCAL** | `worker/test/admin-backend.test.mjs` (PASS) | P0 |
+| **TC-ADM-07** | Migration 0004 Additive | Chạy migration 0004 trên DB đã có 0001-0003 | Bổ sung 4 bảng mới (`admin_ai_profiles`, `admin_audit_logs`, `visitor_profiles`, `admin_telemetry_events`), 100% bảo toàn dữ liệu cũ | **VERIFIED_LOCAL** | `worker/test/migrations.test.mjs` (PASS) | P0 |
+| **TC-ADM-08** | Dynamic AI Resolver & Fallback | Bật `ADMIN_AI_CONFIG_ENABLED=true` | Tự động chuyển profile; khi profile lỗi tự động fallback về Worker Env gốc | **VERIFIED_LOCAL** | `worker/test/ai-config-switch.test.mjs` (PASS) | P0 |
+| **TC-ADM-09** | Feature Flag Fail-Safe | Đặt `ADMIN_AI_CONFIG_ENABLED=false` | 100% lưu lượng chat sử dụng Worker Env cũ, không chạm D1 profiles | **VERIFIED_LOCAL** | `worker/test/ai-config-switch.test.mjs` (PASS) | P0 |
+| **TC-ADM-10** | Visitor Consent Opt-In/Out | Gửi opt-in / opt-out qua `/api/visitors/consent` | Cập nhật hồ sơ ẩn danh; khi opt-out đánh dấu `deleted_at`, loại khỏi admin list | **VERIFIED_LOCAL** | `worker/test/visitor-consent.test.mjs` (PASS) | P0 |
+| **TC-ADM-11** | Truth-in-Telemetry | Mở Admin Dashboard khi chưa có telemetry | Hiển thị trung thực trạng thái "Chưa có dữ liệu" / "Chưa bật thu thập", không tạo số giả | **VERIFIED_LOCAL** | `admin/src/pages/OverviewPage.tsx` & Overview test | P0 |
+

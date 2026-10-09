@@ -6,10 +6,25 @@ import { categoriesRoute } from "./routes/categories";
 import { placesListRoute, placeDetailRoute } from "./routes/places";
 import { articlesListRoute, articleDetailRoute } from "./routes/articles";
 import { chatRoute } from "./routes/chat";
+import { visitorConsentRoute } from "./routes/visitors";
+import {
+  adminOverviewRoute,
+  adminProfilesListRoute,
+  adminProfileCreateRoute,
+  adminProfileUpdateRoute,
+  adminProfileDeleteRoute,
+  adminProfileTestRoute,
+  adminProfileActivateRoute,
+  adminProfileRollbackRoute,
+  adminVisitorsRoute,
+  adminLogsRoute,
+  adminSystemRoute,
+} from "./routes/admin";
 import { chatRateLimiter } from "./utils/rate-limiter";
 
 const router = new Router();
 
+// Public Tourist & Chat Routes
 router.get("/api/health", healthRoute);
 router.get("/api/categories", categoriesRoute);
 router.get("/api/places", placesListRoute);
@@ -17,6 +32,20 @@ router.get("/api/places/:id", placeDetailRoute);
 router.get("/api/articles", articlesListRoute);
 router.get("/api/articles/:slug", articleDetailRoute);
 router.post("/api/chat", chatRoute);
+router.post("/api/visitors/consent", visitorConsentRoute);
+
+// Admin Dashboard Routes (Protected by Cloudflare Access)
+router.get("/api/admin/overview", adminOverviewRoute);
+router.get("/api/admin/ai-profiles", adminProfilesListRoute);
+router.post("/api/admin/ai-profiles", adminProfileCreateRoute);
+router.put("/api/admin/ai-profiles/:id", adminProfileUpdateRoute);
+router.delete("/api/admin/ai-profiles/:id", adminProfileDeleteRoute);
+router.post("/api/admin/ai-profiles/:id/test", adminProfileTestRoute);
+router.post("/api/admin/ai-profiles/:id/activate", adminProfileActivateRoute);
+router.post("/api/admin/ai-profiles/rollback", adminProfileRollbackRoute);
+router.get("/api/admin/visitors", adminVisitorsRoute);
+router.get("/api/admin/logs", adminLogsRoute);
+router.get("/api/admin/system", adminSystemRoute);
 
 const MAX_POST_BYTES = 10 * 1024; // 10 KB limit
 
@@ -64,7 +93,9 @@ async function readBoundedBody(
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    if (request.method.toUpperCase() === "OPTIONS") {
+    const method = request.method.toUpperCase();
+
+    if (method === "OPTIONS") {
       return optionsResponse(env);
     }
 
@@ -78,8 +109,8 @@ export default {
 
     let activeRequest = request;
 
-    // Phase 4 Security: Bounded body size check for POST
-    if (request.method.toUpperCase() === "POST") {
+    // Phase 4 Security: Bounded body size check for POST & PUT
+    if (method === "POST" || method === "PUT") {
       const contentLength = request.headers.get("content-length");
       if (contentLength) {
         const parsedLen = parseInt(contentLength, 10);
@@ -101,7 +132,7 @@ export default {
     }
 
     // Phase 4 Security: Rate limiting for chat endpoint
-    if (url.pathname === "/api/chat" && request.method.toUpperCase() === "POST") {
+    if (url.pathname === "/api/chat" && method === "POST") {
       const check = chatRateLimiter.check(clientIp);
       if (!check.allowed) {
         return errorResponse(
@@ -121,3 +152,4 @@ export default {
     }
   },
 };
+

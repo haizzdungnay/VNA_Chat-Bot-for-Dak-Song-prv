@@ -29,6 +29,7 @@ export class OpenAICompatibleProvider implements AIProvider {
       messages,
       temperature: 0.3,
       max_tokens: DEFAULT_MAX_TOKENS,
+      stream: false,
     };
 
     if (useJsonMode) {
@@ -117,12 +118,35 @@ export class OpenAICompatibleProvider implements AIProvider {
     }
 
     try {
-      const data: any = await response.json();
-      const content = data?.choices?.[0]?.message?.content || "";
+      const text = await response.text();
+      let content = "";
+      try {
+        const data = JSON.parse(text);
+        content = data?.choices?.[0]?.message?.content || "";
+      } catch {
+        // Fallback parser cho dinh dang SSE stream ("data: {...}") phong truong hop proxy ep stream
+        const lines = text.split("\n");
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("data:") && !trimmed.includes("[DONE]")) {
+            try {
+              const jsonStr = trimmed.replace(/^data:\s*/, "");
+              const chunk = JSON.parse(jsonStr);
+              const delta =
+                chunk?.choices?.[0]?.delta?.content ||
+                chunk?.choices?.[0]?.message?.content ||
+                "";
+              content += delta;
+            } catch {
+              // Bo qua chunk khong parse duoc
+            }
+          }
+        }
+      }
       return this.parseResponse(content);
     } catch (err: any) {
       if (err instanceof AIProviderError) throw err;
-      console.error("[OpenAICompatibleProvider] JSON parse failure from upstream");
+      console.error("[OpenAICompatibleProvider] parse failure from upstream");
       throw new AIProviderError("Không thể đọc phản hồi từ dịch vụ AI. Vui lòng thử lại.");
     }
   }

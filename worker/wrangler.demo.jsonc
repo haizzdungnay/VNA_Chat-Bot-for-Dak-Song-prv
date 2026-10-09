@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vna-dak-song-demo",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "placement": {
+    "mode": "smart"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dak-song-db-staging",
+      "database_id": "9c1d6303-7245-4baf-a3d4-114b63f8002a",
+      "migrations_dir": "migrations",
+      "migrations_pattern": "migrations/000[1-3]_*.sql"
+    }
+  ],
+  "vars": {
+    "AI_PROVIDER": "openai-compatible",
+    "AI_BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "AI_MODEL": "gemini-flash-lite-latest",
+    "AI_REASONING_EFFORT": "low",
+    "AI_JSON_MODE": "false",
+    "CORS_ALLOW_ORIGIN": "*"
+  }
+}

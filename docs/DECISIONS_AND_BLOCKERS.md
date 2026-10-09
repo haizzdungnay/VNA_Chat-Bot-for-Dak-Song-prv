@@ -42,7 +42,7 @@
 - **Quyết định giải quyết:**
   - `0001_initial.sql`: Tạo cấu trúc ban đầu (`categories`, `places`).
   - `0002_seed.sql`: Nạp danh mục và 19 địa điểm chuẩn theo đúng schema của 0001 (không gọi cột `source_type` và không chèn bảng `articles`).
-  - `0003_schema_update.sql`: Chạy `ALTER TABLE places ADD COLUMN source_type TEXT DEFAULT 'verified'`, cập nhật 4 điểm `vr360`, tạo bảng `articles` kèm chỉ mục và nạp toàn bộ 42 bài viết.
+  - `0003_schema_update.sql`: Chạy `ALTER TABLE places ADD COLUMN source_type TEXT DEFAULT ''verified''`, cập nhật 4 điểm `vr360`, tạo bảng `articles` kèm chỉ mục và nạp toàn bộ 42 bài viết.
 - **Xác minh kép:**
   - Đường dựng mới (Fresh DB): Áp dụng 0001 -> 0002 -> 0003 hoàn toàn thành công, 0 lỗi, COUNT places = 19, articles = 42.
   - Đường nâng cấp (Preexisting DB): Cơ sở dữ liệu cũ áp dụng 0003 suôn sẻ, không làm mất bất kỳ bản ghi hiện hữu nào.
@@ -59,9 +59,9 @@
 - **Bằng chứng nguồn gốc thực tế:**
   1. `vr360-dien-gio`: Node 51 tour thực tế ảo Đắk Song (`https://daksong-daknong.vnasw.vn/#node51`), ảnh tua-bin gió từ CDN VNA.
   2. `vr360-hang-thong-ql14`: Node 46 (`https://daksong-daknong.vnasw.vn/#node46`), ảnh hàng thông QL14 từ CDN VNA.
-  3. `vr360-cong-dong-mnong`: Node 60 (`https://daksong-daknong.vnasw.vn/#node60`), ảnh sinh hoạt cồng chiêng M'nông từ CDN VNA.
+  3. `vr360-cong-dong-mnong`: Node 60 (`https://daksong-daknong.vnasw.vn/#node60`), ảnh sinh hoạt cồng chiêng M''nông từ CDN VNA.
   4. `vr360-toan-canh-daksong`: Node 110 (`https://daksong-daknong.vnasw.vn/#node110`), ảnh flycam toàn cảnh từ CDN VNA.
-- **Quy tắc:** Đặt `source_type = 'vr360'`, các trường giờ mở cửa, số điện thoại và tọa độ GPS để `NULL` (không bịa GPS hoặc giờ mở cửa).
+- **Quy tắc:** Đặt `source_type = ''vr360''`, các trường giờ mở cửa, số điện thoại và tọa độ GPS để `NULL` (không bịa GPS hoặc giờ mở cửa).
 
 ---
 
@@ -85,3 +85,33 @@ Khi anh tạo Zalo Mini App ID và quét mã QR trên điện thoại:
 5. [ ] **Mở bài viết văn hóa:** Đọc bài viết, cuộn xem nội dung, bấm "Hỏi trợ lý AI về bài viết này" và kiểm tra AI tự động gửi câu hỏi liên quan.
 6. [ ] **Trò chuyện AI:** Gõ câu hỏi, kiểm tra bàn phím ảo không che thanh nhập tin nhắn; thử hỏi câu hỏi liên tiếp xem ngữ cảnh có được duy trì không.
 7. [ ] **Chia sẻ:** Bấm nút chia sẻ địa điểm, kiểm tra hộp thoại chia sẻ Zalo xuất hiện bình thường.
+
+### ADR-09: Kiến Trúc Quản Trị Độc Lập & Xác Thực Cloudflare Access Fail-Closed
+- **Bối cảnh:** Cần cung cấp giao diện quản trị desktop cho đúng 1 quản trị viên duy nhất, không thêm độ phức tạp của RBAC hoặc màn hình đăng ký công khai.
+- **Quyết định:** Tách Admin thành workspace độc lập (`admin/`), gọi các endpoint `/api/admin/*` trên Worker. Backend kiểm tra chứng thực Cloudflare Access (`Cf-Access-Jwt-Assertion`) server-side với chính sách allowlist email của chủ sở hữu.
+- **Nguyên tắc Fail-Closed:** Khi không có JWT hợp lệ hoặc thông tin sai lệch, API trả về 401/403 lập tức. Cho phép mock dev chỉ trong môi trường local khi có cờ rõ ràng.
+
+### ADR-10: Mã Hóa Khóa API Đa Profile Bằng Web Crypto AES-256-GCM Envelope
+- **Bối cảnh:** Admin cần lưu và chuyển đổi linh hoạt nhiều AI Provider profile (Google Gemini, Groq, OpenAI...) mà không phải nhập lại khóa, nhưng tuyệt đối không lưu plaintext khóa trong D1 hay trả khóa qua HTTP.
+- **Quyết định:** Sử dụng Web Crypto API chuẩn trên Cloudflare Workers với thuật toán AES-256-GCM. Mỗi bản ghi sử dụng 12-byte IV ngẫu nhiên mới hoàn toàn; khóa chủ được nạp từ secret `ADMIN_ENCRYPTION_KEY`. Khóa chỉ được giải mã tạm thời trong isolate khi gửi request sang upstream AI. API chỉ trả về 4 ký tự cuối (`key_suffix`).
+
+### ADR-11: Schema Additive 0004 & Nguyên Tắc Trung Thực Dữ Liệu (Truth-in-Telemetry)
+- **Bối cảnh:** Yêu cầu thống kê dữ liệu thật nhưng hệ thống trước đây chưa thu thập telemetry lượt gọi hay consent người dùng.
+- **Quyết định:** Tạo migration `0004_admin_extension.sql` có cấu trúc `IF NOT EXISTS` bảo toàn 100% dữ liệu cũ (19 địa điểm và 42 bài viết). Bảng điều khiển hiển thị trung thực các trạng thái "Chưa có dữ liệu" hoặc "Chưa bật thu thập" thay vì dùng số giả lập.
+
+---
+
+## 4. DANH MỤC ĐIỂM NGHẼN & TRẠNG THÁI (BLOCKERS & ACTION LOG)
+
+1. **BLOCKED_BY_ACCESS_SETUP (Chờ thiết lập Cloudflare Zero Trust Console):**
+   - **Tác động:** Xác thực Cloudflare Access trên production cần chủ dự án tạo Access Application và cung cấp `CF_ACCESS_TEAM_NAME`, `CF_ACCESS_AUD`, `ADMIN_EMAIL_ALLOWLIST`.
+   - **Xử lý an toàn:** API `/api/admin/*` hoạt động theo cơ chế **FAIL-CLOSED** (mặc định từ chối mọi yêu cầu khi thiếu chứng thực). Tại môi trường local dev, hỗ trợ cờ `ADMIN_DEV_MOCK_AUTH=true` để chạy thử nghiệm an toàn.
+
+2. **BLOCKED_BY_CREDENTIAL (Khóa mã hóa bí mật ADMIN_ENCRYPTION_KEY):**
+   - **Tác động:** Khóa chủ 256-bit chưa được nạp lên Cloudflare Worker remote.
+   - **Xử lý an toàn:** Khóa được tạo và lưu trong file local bí mật `.dev.vars` (đã nằm trong `.gitignore`). Khi triển khai remote, chủ dự án chỉ cần thực thi: `npx wrangler secret put ADMIN_ENCRYPTION_KEY`.
+
+3. **BLOCKED_BY_ZALO_IDENTITY (Xác thực danh tính Zalo người dùng thật):**
+   - **Tác động:** Việc gắn hồ sơ người dùng vào Zalo ID thật cần Zalo OAuth / Access Token verification ở Phase 6.
+   - **Xử lý an toàn:** Sử dụng token ẩn danh (`UUID v4`), tuân thủ nguyên tắc Privacy-by-Default; mục Visitors trong Admin Dashboard chỉ hiển thị hồ sơ đã chủ động opt-in lưu server.
+
