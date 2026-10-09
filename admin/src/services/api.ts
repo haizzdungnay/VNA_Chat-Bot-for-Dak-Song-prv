@@ -19,13 +19,9 @@ export class AdminApiError extends Error {
 }
 
 export function getApiBaseUrl(): string {
-  if (
-    typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-  ) {
-    return "";
-  }
-  const envUrl = (import.meta as any).env?.VITE_API_BASE_URL;
+  const envUrl =
+    (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_BACKEND_URL) ||
+    (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_API_BASE_URL);
   if (envUrl) {
     return envUrl.endsWith("/") ? envUrl.slice(0, -1) : envUrl;
   }
@@ -125,4 +121,5 @@ export const adminApi = {
     return request<Record<string, unknown>>("/api/admin/system");
   },
 };
+
 
