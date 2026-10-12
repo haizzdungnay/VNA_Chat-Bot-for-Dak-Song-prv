@@ -114,8 +114,13 @@ export class PlannerService {
         return this.normalizeAndEnforceItinerary(parsed, placesMap, req, false);
       }
 
-      // Try AI generation
-      const aiResult = await this.generateWithAI(allPlaces, req);
+      // Try AI generation with 10s race to preserve fast responsive UX
+      const aiPromise = this.generateWithAI(allPlaces, req);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("AI generation timeout")), 10000)
+      );
+
+      const aiResult = await Promise.race([aiPromise, timeoutPromise]);
       return this.normalizeAndEnforceItinerary(aiResult, placesMap, req, false);
     } catch {
       // Fallback deterministic scheduling when AI times out, errors, or returns malformed JSON
