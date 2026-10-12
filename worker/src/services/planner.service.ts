@@ -12,6 +12,7 @@ import type {
 } from "../types";
 import { PlaceRepository } from "../repositories/place.repository";
 import { createAIProvider } from "./ai";
+import { AdminService } from "./admin.service";
 import { ValidationError } from "../utils/errors";
 
 export class PlannerService {
@@ -93,6 +94,43 @@ export class PlannerService {
     };
   }
 
+  async validateItineraryPayload(data: ItineraryOutput, placesMap: Map<string, Place>): Promise<void> {
+    if (!data || typeof data !== "object") {
+      throw new ValidationError("Dữ liệu lịch trình không hợp lệ.", 400);
+    }
+    const duration = Number(data.durationDays);
+    if (!Number.isInteger(duration) || duration < 1 || duration > 5) {
+      throw new ValidationError("Thời gian chuyến đi phải từ 1 đến 5 ngày.", 400);
+    }
+    const travelers = Number(data.travelersCount);
+    if (!Number.isInteger(travelers) || travelers < 1 || travelers > 50) {
+      throw new ValidationError("Số lượng người tham gia phải từ 1 đến 50 người.", 400);
+    }
+    const children = Number(data.childrenCount || 0);
+    if (!Number.isInteger(children) || children < 0 || children > travelers) {
+      throw new ValidationError("Số lượng trẻ em không thể vượt quá tổng số người.", 400);
+    }
+    if (!data.startDate || !/^\d{4}-\d{2}-\d{2}$/.test(data.startDate)) {
+      throw new ValidationError("Ngày khởi hành không đúng định dạng YYYY-MM-DD.", 400);
+    }
+    if (!Array.isArray(data.days) || data.days.length !== duration) {
+      throw new ValidationError(`Số lượng ngày trong lịch trình (${data.days?.length || 0}) không khớp với tổng số ngày (${duration}).`, 400);
+    }
+
+    for (const day of data.days) {
+      if (!Array.isArray(day.items)) {
+        throw new ValidationError(`Danh sách hoạt động của ngày ${day.dayNumber} không hợp lệ.`, 400);
+      }
+      for (const item of day.items) {
+        if (item.itemType === "place" && item.placeId) {
+          if (!placesMap.has(item.placeId)) {
+            throw new ValidationError(`Địa điểm '${item.placeId}' không tồn tại trong cơ sở dữ liệu.`, 400);
+          }
+        }
+      }
+    }
+  }
+
   async generatePreview(rawReq: Partial<PlannerRequest>): Promise<ItineraryOutput> {
     const req = this.validateRequest(rawReq);
     const allPlaces = await this.placeRepo.findAll();
@@ -135,7 +173,33 @@ export class PlannerService {
   }
 
   private async generateWithAI(allPlaces: Place[], req: PlannerRequest): Promise<any> {
-    const provider = createAIProvider(this.env);
+    const isFeatureEnabled =
+      this.env.ADMIN_AI_CONFIG_ENABLED === "true" ||
+      this.env.ADMIN_AI_CONFIG_ENABLED === true;
+
+    let runtimeEnv = this.env;
+    const adminService = new AdminService(this.env);
+
+    if (isFeatureEnabled) {
+      try {
+        const dynamicConfig = await adminService.getActiveRuntimeConfig();
+        if (dynamicConfig) {
+          runtimeEnv = {
+            ...this.env,
+            AI_PROVIDER: dynamicConfig.providerType,
+            AI_BASE_URL: dynamicConfig.baseUrl,
+            AI_MODEL: dynamicConfig.model,
+            AI_REASONING_EFFORT: dynamicConfig.reasoningEffort,
+            AI_JSON_MODE: dynamicConfig.jsonMode ? "true" : "false",
+            AI_API_KEY: dynamicConfig.apiKey,
+          };
+        }
+      } catch {
+        // fallback gracefully to Worker Env
+      }
+    }
+
+    const provider = createAIProvider(runtimeEnv);
 
     const availableList = allPlaces.map((p) => ({
       id: p.id,
@@ -187,32 +251,39 @@ ${JSON.stringify(availableList, null, 2)}`;
 - Sở thích: ${(req.interests || []).join(", ")}
 ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên: ${req.selectedPlaceIds.join(", ")}` : ""}`;
 
-    const response = await provider.chat({
-      systemPrompt,
-      message: userMessage,
-      history: [],
-      contextPlaces: allPlaces,
-    });
+    const startTime = Date.now();
+    try {
+      const response = await provider.chat({
+        systemPrompt,
+        message: userMessage,
+        history: [],
+        contextPlaces: allPlaces,
+      });
 
-    let rawJson = response.answer.trim();
-    // Strip markdown code fences if present
-    if (rawJson.startsWith("```")) {
-      const match = rawJson.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (match) rawJson = match[1].trim();
+      const duration = Date.now() - startTime;
+      await adminService.logTelemetryEvent("planner_request", 200, duration);
+
+      let rawJson = response.answer.trim();
+      if (rawJson.startsWith("```")) {
+        const match = rawJson.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (match) rawJson = match[1].trim();
+      }
+
+      return JSON.parse(rawJson);
+    } catch (err: any) {
+      const duration = Date.now() - startTime;
+      await adminService.logTelemetryEvent("planner_error", 500, duration, err?.message);
+      throw err;
     }
-
-    return JSON.parse(rawJson);
   }
 
   generateDeterministicItinerary(allPlaces: Place[], req: PlannerRequest): ItineraryOutput {
     const placesMap = new Map<string, Place>(allPlaces.map((p) => [p.id, p]));
     const selectedSet = new Set(req.selectedPlaceIds || []);
 
-    // Separate verified places and vr360
     const verified = allPlaces.filter((p) => p.sourceType !== "vr360");
     const vr360 = allPlaces.filter((p) => p.sourceType === "vr360");
 
-    // Order: user selected first, then featured, then others
     const prioritized: Place[] = [];
     for (const id of selectedSet) {
       const p = placesMap.get(id);
@@ -261,15 +332,14 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
             plannedTime: timeStr,
             durationMinutes: duration,
             notes: place.sourceType === "vr360"
-              ? "Điểm ngắm cảnh và trải nghiệm không gian thực tế ảo VR360 độc đáo."
+              ? "[Điểm thực tế ảo VR360] Điểm ngắm cảnh và trải nghiệm không gian 3D."
               : place.shortDescription || "Tham quan và trải nghiệm vẻ đẹp thiên nhiên.",
             orderIndex: order++,
             isUserSelected: selectedSet.has(place.id),
             place,
           });
 
-          // Advance time
-          currentMin += duration + 30; // 30 min transit
+          currentMin += duration + 20;
           while (currentMin >= 60) {
             currentHour += 1;
             currentMin -= 60;
@@ -307,14 +377,14 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
             plannedTime: timeStr,
             durationMinutes: duration,
             notes: place.sourceType === "vr360"
-              ? "Chiêm ngưỡng không gian đại ngàn qua góc nhìn 360 độ."
+              ? "[Điểm thực tế ảo VR360] Chiêm ngưỡng không gian đại ngàn qua góc nhìn 360 độ."
               : place.shortDescription || "Trải nghiệm văn hóa và cảnh quan địa phương.",
             orderIndex: order++,
             isUserSelected: selectedSet.has(place.id),
             place,
           });
 
-          currentMin += duration + 30;
+          currentMin += duration + 20;
           while (currentMin >= 60) {
             currentHour += 1;
             currentMin -= 60;
@@ -343,12 +413,9 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
       });
     }
 
-    const warnings: string[] = [];
-    if (prioritized.length < req.durationDays * itemsPerDay) {
-      warnings.push(
-        "Số lượng điểm đến được phân bổ hợp lý để du khách có thời gian tận hưởng cảnh quan, không bị gấp gáp."
-      );
-    }
+    const warnings: string[] = [
+      "Thời gian di chuyển thực tế phụ thuộc vào phương tiện và cung đường trải nghiệm.",
+    ];
 
     return {
       title: `Hành trình khám phá Đắk Song ${req.durationDays}N${Math.max(1, req.durationDays - 1)}Đ`,
@@ -366,7 +433,7 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
       version: 1,
       days,
       warnings,
-      isFallback: false,
+      isFallback: true,
     };
   }
 
@@ -377,18 +444,23 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
     isFallback: boolean
   ): ItineraryOutput {
     if (!raw || typeof raw !== "object" || !Array.isArray(raw.days)) {
-      return this.generateDeterministicItinerary(Array.from(placesMap.values()), req);
+      const fallback = this.generateDeterministicItinerary(Array.from(placesMap.values()), req);
+      fallback.isFallback = true;
+      return fallback;
     }
 
     const selectedSet = new Set(req.selectedPlaceIds || []);
     const normalizedDays: ItineraryDayOutput[] = [];
-    const warnings: string[] = [];
+    const warnings: string[] = [
+      "Thời gian di chuyển thực tế phụ thuộc vào phương tiện và cung đường trải nghiệm.",
+    ];
 
     for (let i = 0; i < req.durationDays; i++) {
       const dayRaw = raw.days[i];
       const dayNum = i + 1;
       const dayDate = this.calculateDate(req.startDate, i);
       const items: ItineraryItemOutput[] = [];
+      const seenPlaceOnDay = new Set<string>();
 
       if (dayRaw && Array.isArray(dayRaw.items)) {
         let order = 0;
@@ -401,6 +473,11 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
           let placeObj: Place | undefined = undefined;
 
           if (itemType === "place" && itemRaw.placeId && placesMap.has(itemRaw.placeId)) {
+            // Deduplicate same place within same day unless user deliberately picked
+            if (seenPlaceOnDay.has(itemRaw.placeId)) {
+              continue;
+            }
+            seenPlaceOnDay.add(itemRaw.placeId);
             placeId = itemRaw.placeId;
             placeObj = placesMap.get(itemRaw.placeId);
           }
@@ -471,24 +548,29 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
     }
   }
 
-  // --- CRUD Storage Operations Bound to Authenticated users.id ---
+  // --- CRUD Storage Operations with Server-side Validation & Atomic Batch ---
 
   async saveItinerary(userId: string, data: ItineraryOutput): Promise<ItineraryOutput> {
     if (!userId || typeof userId !== "string") {
       throw new ValidationError("Yêu cầu xác thực tài khoản để lưu lịch trình.", 401);
     }
 
+    const allPlaces = await this.placeRepo.findAll();
+    const placesMap = new Map<string, Place>(allPlaces.map((p) => [p.id, p]));
+    await this.validateItineraryPayload(data, placesMap);
+
     const itineraryId = data.id || crypto.randomUUID();
     const interestsJson = JSON.stringify(data.interests || []);
 
-    await this.env.DB.prepare(`
-      INSERT INTO travel_itineraries (
-        id, user_id, title, start_date, departure_time, duration_days,
-        travelers_count, children_count, pace, transportation, budget_preference,
-        interests_json, summary, status, version, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'saved', 1, datetime('now'), datetime('now'))
-    `)
-      .bind(
+    const batchStmts: any[] = [];
+    batchStmts.push(
+      this.env.DB.prepare(`
+        INSERT INTO travel_itineraries (
+          id, user_id, title, start_date, departure_time, duration_days,
+          travelers_count, children_count, pace, transportation, budget_preference,
+          interests_json, summary, status, version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'saved', 1, datetime('now'), datetime('now'))
+      `).bind(
         itineraryId,
         userId,
         data.title,
@@ -503,32 +585,33 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
         interestsJson,
         data.summary || null
       )
-      .run();
+    );
 
     const savedDays: ItineraryDayOutput[] = [];
 
     for (const day of data.days) {
       const dayId = crypto.randomUUID();
-      await this.env.DB.prepare(`
-        INSERT INTO itinerary_days (id, itinerary_id, day_number, date, title, notes, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-      `)
-        .bind(dayId, itineraryId, day.dayNumber, day.date || null, day.title || null, day.notes || null)
-        .run();
+      batchStmts.push(
+        this.env.DB.prepare(`
+          INSERT INTO itinerary_days (id, itinerary_id, day_number, date, title, notes, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        `).bind(dayId, itineraryId, day.dayNumber, day.date || null, day.title || null, day.notes || null)
+      );
 
       const savedItems: ItineraryItemOutput[] = [];
 
       for (let idx = 0; idx < day.items.length; idx++) {
         const item = day.items[idx];
         const itemId = crypto.randomUUID();
+        const placeObj = item.placeId ? placesMap.get(item.placeId) : undefined;
 
-        await this.env.DB.prepare(`
-          INSERT INTO itinerary_items (
-            id, itinerary_id, day_id, place_id, item_type, title,
-            planned_time, duration_minutes, notes, order_index, is_user_selected, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        `)
-          .bind(
+        batchStmts.push(
+          this.env.DB.prepare(`
+            INSERT INTO itinerary_items (
+              id, itinerary_id, day_id, place_id, item_type, title,
+              planned_time, duration_minutes, notes, order_index, is_user_selected, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          `).bind(
             itemId,
             itineraryId,
             dayId,
@@ -541,13 +624,15 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
             idx,
             item.isUserSelected ? 1 : 0
           )
-          .run();
+        );
 
-        savedItems.push({ ...item, id: itemId });
+        savedItems.push({ ...item, id: itemId, place: placeObj });
       }
 
       savedDays.push({ ...day, id: dayId, items: savedItems });
     }
+
+    await this.env.DB.batch(batchStmts);
 
     return {
       ...data,
@@ -607,18 +692,31 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
       throw new ValidationError("Không tìm thấy lịch trình hoặc bạn không có quyền truy cập.", 404);
     }
 
-    const newVersion = (existing.version || 1) + 1;
+    const currentVersion = existing.version || 1;
+    // Optimistic locking check: if client supplied a version and it does not match DB, conflict!
+    if (data.version !== undefined && data.version !== currentVersion) {
+      throw new ValidationError("Xung đột phiên bản: Lịch trình này đã được cập nhật từ thiết bị khác. Vui lòng tải lại trang.", 409);
+    }
+
+    const allPlaces = await this.placeRepo.findAll();
+    const placesMap = new Map<string, Place>(allPlaces.map((p) => [p.id, p]));
+    await this.validateItineraryPayload(data, placesMap);
+
+    const newVersion = currentVersion + 1;
     const interestsJson = JSON.stringify(data.interests || []);
 
-    await this.env.DB.prepare(`
-      UPDATE travel_itineraries SET
-        title = ?, start_date = ?, departure_time = ?, duration_days = ?,
-        travelers_count = ?, children_count = ?, pace = ?, transportation = ?,
-        budget_preference = ?, interests_json = ?, summary = ?, status = ?,
-        version = ?, updated_at = datetime('now')
-      WHERE id = ? AND user_id = ?
-    `)
-      .bind(
+    const batchStmts: any[] = [];
+
+    // Update master itinerary with optimistic version check
+    batchStmts.push(
+      this.env.DB.prepare(`
+        UPDATE travel_itineraries SET
+          title = ?, start_date = ?, departure_time = ?, duration_days = ?,
+          travelers_count = ?, children_count = ?, pace = ?, transportation = ?,
+          budget_preference = ?, interests_json = ?, summary = ?, status = ?,
+          version = ?, updated_at = datetime('now')
+        WHERE id = ? AND user_id = ? AND version = ?
+      `).bind(
         data.title,
         data.startDate,
         data.departureTime || "08:00",
@@ -633,42 +731,43 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
         data.status || "saved",
         newVersion,
         itineraryId,
-        userId
+        userId,
+        currentVersion
       )
-      .run();
+    );
 
-    // Replace days and items atomically
-    await this.env.DB.prepare("DELETE FROM itinerary_items WHERE itinerary_id = ?")
-      .bind(itineraryId)
-      .run();
-    await this.env.DB.prepare("DELETE FROM itinerary_days WHERE itinerary_id = ?")
-      .bind(itineraryId)
-      .run();
+    batchStmts.push(
+      this.env.DB.prepare("DELETE FROM itinerary_items WHERE itinerary_id = ?").bind(itineraryId)
+    );
+    batchStmts.push(
+      this.env.DB.prepare("DELETE FROM itinerary_days WHERE itinerary_id = ?").bind(itineraryId)
+    );
 
     const savedDays: ItineraryDayOutput[] = [];
 
     for (const day of data.days) {
       const dayId = crypto.randomUUID();
-      await this.env.DB.prepare(`
-        INSERT INTO itinerary_days (id, itinerary_id, day_number, date, title, notes, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-      `)
-        .bind(dayId, itineraryId, day.dayNumber, day.date || null, day.title || null, day.notes || null)
-        .run();
+      batchStmts.push(
+        this.env.DB.prepare(`
+          INSERT INTO itinerary_days (id, itinerary_id, day_number, date, title, notes, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        `).bind(dayId, itineraryId, day.dayNumber, day.date || null, day.title || null, day.notes || null)
+      );
 
       const savedItems: ItineraryItemOutput[] = [];
 
       for (let idx = 0; idx < day.items.length; idx++) {
         const item = day.items[idx];
         const itemId = crypto.randomUUID();
+        const placeObj = item.placeId ? placesMap.get(item.placeId) : undefined;
 
-        await this.env.DB.prepare(`
-          INSERT INTO itinerary_items (
-            id, itinerary_id, day_id, place_id, item_type, title,
-            planned_time, duration_minutes, notes, order_index, is_user_selected, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        `)
-          .bind(
+        batchStmts.push(
+          this.env.DB.prepare(`
+            INSERT INTO itinerary_items (
+              id, itinerary_id, day_id, place_id, item_type, title,
+              planned_time, duration_minutes, notes, order_index, is_user_selected, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          `).bind(
             itemId,
             itineraryId,
             dayId,
@@ -681,12 +780,18 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
             idx,
             item.isUserSelected ? 1 : 0
           )
-          .run();
+        );
 
-        savedItems.push({ ...item, id: itemId });
+        savedItems.push({ ...item, id: itemId, place: placeObj });
       }
 
       savedDays.push({ ...day, id: dayId, items: savedItems });
+    }
+
+    const batchResults = await this.env.DB.batch(batchStmts);
+    const updateResult = batchResults[0] as any;
+    if (updateResult && updateResult.meta && updateResult.meta.changes === 0) {
+      throw new ValidationError("Xung đột phiên bản: Lịch trình này đã được cập nhật từ thiết bị khác. Vui lòng tải lại trang.", 409);
     }
 
     return {
@@ -776,9 +881,9 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
       durationDays: row.duration_days,
       travelersCount: row.travelers_count,
       childrenCount: row.children_count,
-      pace: (row.pace as TravelPace) || "moderate",
-      transportation: (row.transportation as TransportationType) || "car",
-      budgetPreference: (row.budget_preference as BudgetPreference) || "moderate",
+      pace: row.pace,
+      transportation: row.transportation,
+      budgetPreference: row.budget_preference,
       interests,
       summary: row.summary,
       status: row.status,

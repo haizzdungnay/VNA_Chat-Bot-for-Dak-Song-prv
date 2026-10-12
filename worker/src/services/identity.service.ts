@@ -78,11 +78,12 @@ export class IdentityService {
   }
 
   private getOtpSecret(): string {
-    return (
-      (this.env as any).SECRET_SALT ||
-      this.env.ADMIN_ENCRYPTION_KEY ||
-      "vna-daksong-otp-hmac-salt-secret"
-    );
+    const key = this.env.ADMIN_ENCRYPTION_KEY || (this.env as any).SECRET_SALT;
+    if (key) return key;
+    if (this.env.ENVIRONMENT === "test" || this.env.ENVIRONMENT === "development") {
+      return "vna-dev-otp-hmac-salt";
+    }
+    throw new ValidationError("Máy chủ thiếu cấu hình khóa bảo mật OTP (ADMIN_ENCRYPTION_KEY).", 500);
   }
 
   async verifyZaloAccessToken(accessToken: string): Promise<ZaloVerifyResult> {

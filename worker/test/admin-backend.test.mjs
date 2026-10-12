@@ -60,6 +60,7 @@ function createAdminTestEnv(overrides = {}) {
 
   return {
     DB: d1Mock,
+    ENVIRONMENT: 'development',
     ADMIN_ENCRYPTION_KEY: 'test-master-encryption-key-32-chars-long!',
     ADMIN_EMAIL_ALLOWLIST: 'owner@daksong.vn,lead@daksong.vn',
     CF_ACCESS_TEAM_NAME: 'vna-tourism',

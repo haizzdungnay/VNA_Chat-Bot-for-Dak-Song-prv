@@ -31,13 +31,10 @@ function parseJwtPayload(token: string): any {
 export async function authenticateAdmin(req: Request, env: Env): Promise<AdminAuthResult> {
   const jwtAssertion = req.headers.get("cf-access-jwt-assertion");
 
-  // Check dev mock bypass only in explicit local dev mode
-  // Fail-closed security guard: NEVER permit mock auth in production environment
+  // Strict Fail-Closed: Only permit mock admin auth when EXPLICITLY set to local development or test
   const isDevMode =
-    env.ENVIRONMENT !== "production" &&
-    (env.ADMIN_DEV_MOCK_AUTH === "true" ||
-      env.ADMIN_DEV_MOCK_AUTH === true ||
-      env.ENVIRONMENT === "development");
+    (env.ENVIRONMENT === "development" || env.ENVIRONMENT === "test") &&
+    (env.ADMIN_DEV_MOCK_AUTH === "true" || env.ADMIN_DEV_MOCK_AUTH === true);
 
   if (!jwtAssertion) {
     if (isDevMode) {

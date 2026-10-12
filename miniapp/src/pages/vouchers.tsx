@@ -131,6 +131,27 @@ export const VouchersPage: React.FC = () => {
         </button>
       </div>
 
+            {/* Demo Preview Notice */}
+      <div
+        style={{
+          backgroundColor: "var(--color-surface-container)",
+          border: "1px dashed var(--color-border)",
+          borderRadius: 12,
+          padding: "10px 14px",
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+        }}
+      >
+        <span className="material-symbols-outlined" style={{ fontSize: 20, color: "var(--color-ochre)" }}>
+          info
+        </span>
+        <div style={{ fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.4 }}>
+          <strong>Bản xem trước Demo:</strong> Các voucher dưới đây là dữ liệu minh họa giao diện cho Phase 8.5 (Voucher Wallet & Lucky Wheel), chưa có giá trị quy đổi thực tế.
+        </div>
+      </div>
+
       {/* Lucky Wheel Banner Preview */}
       <div
         style={{

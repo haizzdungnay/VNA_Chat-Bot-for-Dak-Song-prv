@@ -70,3 +70,37 @@ test("FE Planner: VR360 destinations retain virtual experience notice", () => {
 
   assert.ok(notes.includes("[Điểm thực tế ảo VR360]"));
 });
+
+test("FE Planner: Recalculates timeline hours chronologically when items change", () => {
+  function recalculateDaySchedule(items, dayStartTime = "08:30") {
+    let [h, m] = dayStartTime.split(":").map(Number);
+    return items.map((item, idx) => {
+      let plannedTime = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      if (item.itemType === "meal" && (h < 11 || (h === 11 && m < 30))) {
+        h = 11;
+        m = 45;
+        plannedTime = "11:45";
+      }
+      const duration = item.durationMinutes || 60;
+      const transitMin = item.itemType === "meal" || item.itemType === "rest" ? 0 : 20;
+      m += duration + transitMin;
+      while (m >= 60) {
+        h += 1;
+        m -= 60;
+      }
+      return { ...item, plannedTime, orderIndex: idx };
+    });
+  }
+
+  const dayItems = [
+    { title: "Điểm 1", itemType: "place", durationMinutes: 60 },
+    { title: "Nghỉ trưa", itemType: "meal", durationMinutes: 75 },
+    { title: "Điểm 2", itemType: "place", durationMinutes: 90 },
+  ];
+
+  const sched = recalculateDaySchedule(dayItems, "08:30");
+  assert.equal(sched[0].plannedTime, "08:30");
+  assert.equal(sched[1].plannedTime, "11:45");
+  // 11:45 + 75m = 13:00 -> Next item at 13:00
+  assert.equal(sched[2].plannedTime, "13:00");
+});

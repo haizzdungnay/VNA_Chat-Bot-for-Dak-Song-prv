@@ -48,8 +48,17 @@ export class EmailSenderService {
     }
 
     if (provider === "test") {
+      const isLocalOrTest = this.env.ENVIRONMENT === "development" || this.env.ENVIRONMENT === "test";
+      if (!isLocalOrTest) {
+        return {
+          success: false,
+          error: "Nhà cung cấp email 'test' bị vô hiệu hóa ngoài môi trường development/test.",
+        };
+      }
       testInbox.push({ ...opts, timestamp: Date.now() });
-      console.log(`[LOCAL DEV EMAIL] To: ${opts.to} | Message: ${opts.text}`);
+      if (this.env.ENVIRONMENT === "development") {
+        console.log(`[LOCAL DEV EMAIL] To: ${opts.to} | Message: ${opts.text}`);
+      }
       return { success: true, messageId: "test-msg-" + Date.now() };
     }
 

@@ -161,7 +161,7 @@ test('IdentityService: Email OTP flow handles request, challenge hashing, and si
   const challengeInDb = env.rawDb.prepare('SELECT * FROM auth_challenges WHERE identifier = ?').get(email);
   assert.ok(challengeInDb, 'Challenge must exist');
   assert.notEqual(challengeInDb.code_hash, otpCode, 'Must NOT store plaintext OTP in database');
-  assert.equal(challengeInDb.code_hash, await computeOtpHmac(otpCode, 'vna-daksong-otp-hmac-salt-secret'), 'Stored hash must match HMAC-SHA256 of OTP');
+  assert.equal(challengeInDb.code_hash, await computeOtpHmac(otpCode, 'vna-dev-otp-hmac-salt'), 'Stored hash must match HMAC-SHA256 of OTP');
 
   // Verify with correct OTP
   const verifyRes = await identityService.verifyEmailOtp(email, otpCode);

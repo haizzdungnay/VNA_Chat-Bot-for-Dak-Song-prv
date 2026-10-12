@@ -13,6 +13,35 @@ import type {
   BudgetPreference,
 } from "../types";
 
+function recalculateDaySchedule(items: ItineraryItemOutput[], dayStartTime = "08:30"): ItineraryItemOutput[] {
+  let [h, m] = dayStartTime.split(":").map(Number);
+  if (isNaN(h)) h = 8;
+  if (isNaN(m)) m = 30;
+
+  return items.map((item, idx) => {
+    let plannedTime = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    if (item.itemType === "meal" && (h < 11 || (h === 11 && m < 30))) {
+      h = 11;
+      m = 45;
+      plannedTime = "11:45";
+    }
+
+    const duration = item.durationMinutes || 60;
+    const transitMin = item.itemType === "meal" || item.itemType === "rest" ? 0 : 20;
+    m += duration + transitMin;
+    while (m >= 60) {
+      h += 1;
+      m -= 60;
+    }
+
+    return {
+      ...item,
+      plannedTime,
+      orderIndex: idx,
+    };
+  });
+}
+
 export const PlannerPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -163,13 +192,9 @@ export const PlannerPage: React.FC = () => {
     newItems[itemIdx] = newItems[targetIdx];
     newItems[targetIdx] = temp;
 
-    // Update orderIndex
-    newItems.forEach((it, idx) => {
-      it.orderIndex = idx;
-    });
-
+    const reordered = recalculateDaySchedule(newItems, dayNum === 1 ? itinerary.departureTime || "08:30" : "08:30");
     const updatedDays = itinerary.days.map((d) =>
-      d.dayNumber === dayNum ? { ...d, items: newItems } : d
+      d.dayNumber === dayNum ? { ...d, items: reordered } : d
     );
 
     setItinerary({ ...itinerary, days: updatedDays });
@@ -181,16 +206,14 @@ export const PlannerPage: React.FC = () => {
     if (!day) return;
 
     const newItems = day.items.filter((_, idx) => idx !== itemIdx);
-    newItems.forEach((it, idx) => {
-      it.orderIndex = idx;
-    });
+    const reordered = recalculateDaySchedule(newItems, dayNum === 1 ? itinerary.departureTime || "08:30" : "08:30");
 
     const updatedDays = itinerary.days.map((d) =>
-      d.dayNumber === dayNum ? { ...d, items: newItems } : d
+      d.dayNumber === dayNum ? { ...d, items: reordered } : d
     );
 
     setItinerary({ ...itinerary, days: updatedDays });
-    showToast("Đã bỏ điểm dừng khỏi ngày.");
+    showToast("Đã bỏ điểm dừng và tự động xếp lại lịch.");
   };
 
   const handleAddPlaceToDay = (place: Place) => {
@@ -212,13 +235,14 @@ export const PlannerPage: React.FC = () => {
       place,
     };
 
+    const reordered = recalculateDaySchedule([...day.items, newItem], activeDayNumber === 1 ? itinerary.departureTime || "08:30" : "08:30");
     const updatedDays = itinerary.days.map((d) =>
-      d.dayNumber === activeDayNumber ? { ...d, items: [...d.items, newItem] } : d
+      d.dayNumber === activeDayNumber ? { ...d, items: reordered } : d
     );
 
     setItinerary({ ...itinerary, days: updatedDays });
     setShowAddPlaceModal(false);
-    showToast(`Đã thêm ${place.name} vào Ngày ${activeDayNumber}`);
+    showToast(`Đã thêm ${place.name} vào Ngày ${activeDayNumber} và tự động xếp lại lịch`);
   };
 
   return (

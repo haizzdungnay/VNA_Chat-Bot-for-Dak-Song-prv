@@ -53,6 +53,13 @@ function createPlannerTestEnv(overrides = {}) {
       prepare(sql) {
         return makeStmt(sql);
       },
+      async batch(statements) {
+        const results = [];
+        for (const s of statements) {
+          results.push(await s.run());
+        }
+        return results;
+      },
     },
     rawDb: db,
     ENVIRONMENT: 'test',
@@ -270,4 +277,56 @@ test('HTTP Router E2E: Itineraries public preview, auth save/list/delete, and ra
   });
   const resDelete = await worker.fetch(reqDelete, env, mockCtx);
   assert.equal(resDelete.status, 200);
+});
+
+test('PlannerService: Server-side validation rejects invalid placeId during save', async () => {
+  const env = createPlannerTestEnv();
+  const planner = new PlannerService(env);
+
+  const preview = await planner.generatePreview({
+    durationDays: 1,
+    travelersCount: 2,
+    startDate: '2026-11-20',
+  });
+
+  // Tamper preview with fake placeId
+  preview.days[0].items.push({
+    placeId: 'fake-non-existent-place',
+    itemType: 'place',
+    title: 'Địa điểm bịa đặt',
+    durationMinutes: 60,
+    orderIndex: 99,
+    isUserSelected: false,
+  });
+
+  await assert.rejects(
+    async () => planner.saveItinerary('user-uuid-1111', preview),
+    /Địa điểm 'fake-non-existent-place' không tồn tại/
+  );
+});
+
+test('PlannerService: Optimistic locking rejects stale version update with 409', async () => {
+  const env = createPlannerTestEnv();
+  const planner = new PlannerService(env);
+  const user = 'user-uuid-lock';
+  env.rawDb.exec(`INSERT INTO users (id, display_name, status) VALUES ('${user}', 'User Lock', 'active');`);
+
+  const preview = await planner.generatePreview({
+    durationDays: 1,
+    travelersCount: 2,
+    startDate: '2026-11-20',
+  });
+
+  const saved = await planner.saveItinerary(user, preview);
+  assert.equal(saved.version, 1);
+
+  // First update succeeds and increments version to 2
+  const updated1 = await planner.updateItinerary(user, saved.id, { ...saved, title: 'Bản sửa lần 1' });
+  assert.equal(updated1.version, 2);
+
+  // Stale update using version 1 fails with 409 Conflict
+  await assert.rejects(
+    async () => planner.updateItinerary(user, saved.id, { ...saved, title: 'Bản sửa cũ từ thiết bị khác', version: 1 }),
+    /Xung đột phiên bản/
+  );
 });
