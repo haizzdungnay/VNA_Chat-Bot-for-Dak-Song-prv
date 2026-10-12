@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "zmp-ui";
 import { api } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import { useApp } from "../context/AppContext";
+import { BookingCheckoutModal } from "../components/BookingCheckoutModal";
 import type {
   Place,
   PlannerRequest,
@@ -73,6 +74,7 @@ export const PlannerPage: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [showSavedModal, setShowSavedModal] = useState<boolean>(false);
+  const [showCheckoutModal, setShowCheckoutModal] = useState<boolean>(false);
   const [savedTrips, setSavedTrips] = useState<ItineraryOutput[]>([]);
   const [showAddPlaceModal, setShowAddPlaceModal] = useState<boolean>(false);
 
@@ -670,6 +672,31 @@ export const PlannerPage: React.FC = () => {
 
               <button
                 type="button"
+                onClick={() => setShowCheckoutModal(true)}
+                className="eco-btn-secondary"
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  cursor: "pointer",
+                  backgroundColor: "var(--color-bg-secondary, #f0fdfa)",
+                  color: "var(--color-primary, #0f766e)",
+                  border: "1px solid var(--color-primary, #0f766e)",
+                }}
+                title="Nhận báo giá & Đặt dịch vụ theo lịch này"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                  shopping_cart_checkout
+                </span>
+                <span>Báo giá & Đặt tour</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={handleSaveItinerary}
                 disabled={isSaving}
                 className="eco-btn-primary"
@@ -1134,8 +1161,17 @@ export const PlannerPage: React.FC = () => {
           </div>
         </div>
       )}
+      {/* Phase 8.3 Booking & Checkout Modal */}
+      <BookingCheckoutModal
+        isOpen={showCheckoutModal}
+        onClose={() => setShowCheckoutModal(false)}
+        itinerary={itinerary}
+      />
     </div>
   );
 };
 
 export default PlannerPage;
+
+
+

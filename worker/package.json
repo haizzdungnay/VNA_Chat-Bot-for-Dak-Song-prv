@@ -7,7 +7,7 @@
     "dev": "wrangler dev --local --port 8788",
     "build": "tsc --noEmit && wrangler deploy --dry-run",
     "typecheck": "tsc --noEmit",
-    "test": "node --import ../scripts/ts-register.mjs --test test/router.test.js test/openai-compatible.test.mjs test/sync-adapter.test.mjs test/security.test.mjs test/migrations.test.mjs test/chat-e2e-scenarios.test.mjs test/admin-backend.test.mjs test/ai-config-switch.test.mjs test/visitor-consent.test.mjs test/identity-auth.test.mjs test/travel-planner.test.mjs test/d1-concurrency.test.mjs",
+    "test": "node --import ../scripts/ts-register.mjs --test test/router.test.js test/openai-compatible.test.mjs test/sync-adapter.test.mjs test/security.test.mjs test/migrations.test.mjs test/chat-e2e-scenarios.test.mjs test/admin-backend.test.mjs test/ai-config-switch.test.mjs test/visitor-consent.test.mjs test/identity-auth.test.mjs test/travel-planner.test.mjs test/d1-concurrency.test.mjs test/business-booking.test.mjs",
     "deploy": "wrangler deploy",
     "cf-typegen": "wrangler types"
   },
@@ -18,3 +18,4 @@
     "wrangler": "^4.148.0"
   }
 }
+

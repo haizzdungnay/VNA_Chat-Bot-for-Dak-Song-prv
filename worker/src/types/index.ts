@@ -288,3 +288,194 @@ export interface ItineraryOutput {
   updatedAt?: string;
 }
 
+// Phase 8.3 Business Operations & Booking Types
+export type PricingMode = "fixed" | "per_person" | "per_adult" | "per_child" | "per_group" | "per_day" | "per_night";
+export type TourStatus = "draft" | "published" | "archived";
+export type ServiceCategory = "guide" | "transport" | "ticket" | "accommodation" | "meal" | "other";
+export type BookingStatus = "pending" | "confirmed" | "cancelled" | "completed";
+export type PaymentStatus = "unpaid" | "paid" | "partially_refunded" | "refunded" | "failed";
+export type PaymentMethod = "mock_bank_transfer" | "mock_qr" | "mock_zalo_pay";
+
+export interface TourProductRow {
+  id: string;
+  code: string;
+  title: string;
+  description: string;
+  cover_image_url: string | null;
+  duration_days: number;
+  min_travelers: number;
+  max_travelers: number;
+  base_price: number;
+  status: TourStatus;
+  is_demo: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TourProductPublic {
+  id: string;
+  code: string;
+  title: string;
+  description: string;
+  coverImageUrl?: string | null;
+  durationDays: number;
+  minTravelers: number;
+  maxTravelers: number;
+  basePrice: number;
+  status: TourStatus;
+  isDemo: boolean;
+  destinations?: Place[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TourServiceRow {
+  id: string;
+  code: string;
+  name: string;
+  category: ServiceCategory;
+  description: string | null;
+  provider_name: string | null;
+  place_id: string | null;
+  is_active: number;
+  is_demo: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TourPriceRuleRow {
+  id: string;
+  service_id: string | null;
+  tour_id: string | null;
+  pricing_mode: PricingMode;
+  unit_price: number;
+  currency: string;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TourServicePublic {
+  id: string;
+  code: string;
+  name: string;
+  category: ServiceCategory;
+  description?: string | null;
+  providerName?: string | null;
+  placeId?: string | null;
+  isActive: boolean;
+  isDemo: boolean;
+  pricingRule?: {
+    id: string;
+    pricingMode: PricingMode;
+    unitPrice: number;
+    currency: string;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BookingQuoteRow {
+  id: string;
+  quote_reference: string;
+  user_id: string;
+  tour_id: string | null;
+  itinerary_id: string | null;
+  itinerary_version: number | null;
+  adults_count: number;
+  children_count: number;
+  duration_days: number;
+  subtotal: number;
+  total_price: number;
+  currency: string;
+  expires_at: string;
+  status: string;
+  created_at: string;
+}
+
+export interface BookingQuoteItemRow {
+  id: string;
+  quote_id: string;
+  service_id: string | null;
+  item_name: string;
+  category: string;
+  pricing_mode: string;
+  unit_price: number;
+  quantity: number;
+  line_total: number;
+}
+
+export interface TourBookingRow {
+  id: string;
+  booking_reference: string;
+  user_id: string;
+  quote_id: string;
+  tour_id: string | null;
+  itinerary_id: string | null;
+  customer_name: string;
+  customer_phone: string;
+  customer_email: string | null;
+  adults_count: number;
+  children_count: number;
+  total_amount: number;
+  currency: string;
+  booking_status: BookingStatus;
+  payment_status: PaymentStatus;
+  notes: string | null;
+  idempotency_key: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TourBookingItemRow {
+  id: string;
+  booking_id: string;
+  service_id: string | null;
+  item_name: string;
+  category: string;
+  pricing_mode: string;
+  unit_price: number;
+  quantity: number;
+  line_total: number;
+}
+
+export interface MockPaymentAttemptRow {
+  id: string;
+  booking_id: string;
+  transaction_reference: string;
+  payment_method: PaymentMethod;
+  amount: number;
+  currency: string;
+  status: "success" | "failed" | "refunded";
+  idempotency_key: string | null;
+  failure_reason: string | null;
+  refunded_amount: number;
+  created_at: string;
+}
+
+export interface BookingStateEventRow {
+  id: string;
+  booking_id: string;
+  event_type: string;
+  from_status: string | null;
+  to_status: string | null;
+  actor: string;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface RevenueAnalyticsSummary {
+  totalBookings: number;
+  pendingBookings: number;
+  successfulBookings: number;
+  failedPaymentAttempts: number;
+  cancelledBookings: number;
+  grossSimulatedRevenue: number;
+  simulatedRefundedAmount: number;
+  netSimulatedRevenue: number;
+  averageBookingValue: number;
+  dailyTrends: { date: string; revenue: number; bookingsCount: number }[];
+  categoryDistribution: { category: string; count: number; totalAmount: number }[];
+  statusDistribution: { status: string; count: number }[];
+  topProducts: { name: string; type: "tour" | "service"; bookedCount: number; revenue: number }[];
+}

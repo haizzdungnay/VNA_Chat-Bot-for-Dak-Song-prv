@@ -91,6 +91,21 @@ export class IdentityService {
       return await IdentityService.testZaloVerifier(accessToken);
     }
 
+    // Dev mock support strictly in dev environment when ADMIN_DEV_MOCK_AUTH is enabled
+    if (
+      (this.env.ADMIN_DEV_MOCK_AUTH === "true" || this.env.ADMIN_DEV_MOCK_AUTH === true) &&
+      this.env.ENVIRONMENT !== "production" &&
+      this.env.ENVIRONMENT !== "staging" &&
+      accessToken.startsWith("mock_")
+    ) {
+      return {
+        valid: true,
+        zaloId: "mock-zalo-user-1",
+        name: "Du khách thử nghiệm",
+        avatar: "https://static.dggv.edu.vn/360/1682416281765_IMG20190809101005.jpg",
+      };
+    }
+
     try {
       const res = await fetch("https://graph.zalo.me/v2.0/me", {
         method: "GET",
@@ -599,3 +614,4 @@ export class IdentityService {
     return (results || []).map((r) => r.provider);
   }
 }
+

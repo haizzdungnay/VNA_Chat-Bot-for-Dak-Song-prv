@@ -35,6 +35,36 @@ import {
   updateItineraryRoute,
   deleteItineraryRoute,
 } from "./routes/itineraries";
+import {
+  toursListRoute,
+  tourDetailRoute,
+  servicesListRoute,
+  createQuoteRoute,
+  createBookingRoute,
+  listUserBookingsRoute,
+  getUserBookingDetailRoute,
+  mockPaymentRoute,
+  cancelUserBookingRoute,
+} from "./routes/bookings";
+import {
+  adminToursListRoute,
+  adminTourDetailRoute,
+  adminTourCreateRoute,
+  adminTourUpdateRoute,
+  adminTourDeleteRoute,
+  adminServicesListRoute,
+  adminServiceCreateRoute,
+  adminServiceUpdateRoute,
+  adminServicePriceUpdateRoute,
+  adminServiceToggleRoute,
+  adminBookingsListRoute,
+  adminBookingDetailRoute,
+  adminBookingCancelRoute,
+  adminBookingMockRefundRoute,
+  adminRevenueAnalyticsRoute,
+  adminRevenueExportRoute,
+} from "./routes/admin-business";
+
 import { chatRateLimiter, authRateLimiter, InMemoryRateLimiter } from "./utils/rate-limiter";
 
 const previewRateLimiter = new InMemoryRateLimiter(60_000, 20);
@@ -78,6 +108,35 @@ router.post("/api/admin/ai-profiles/rollback", adminProfileRollbackRoute);
 router.get("/api/admin/visitors", adminVisitorsRoute);
 router.get("/api/admin/logs", adminLogsRoute);
 router.get("/api/admin/system", adminSystemRoute);
+// Phase 8.3 Business Operations & Booking Routes
+router.get("/api/tours", toursListRoute);
+router.get("/api/tours/:id", tourDetailRoute);
+router.get("/api/services", servicesListRoute);
+router.post("/api/quotes", createQuoteRoute);
+router.post("/api/bookings", createBookingRoute);
+router.get("/api/bookings", listUserBookingsRoute);
+router.get("/api/bookings/:id", getUserBookingDetailRoute);
+router.post("/api/bookings/:id/pay", mockPaymentRoute);
+router.post("/api/bookings/:id/cancel", cancelUserBookingRoute);
+
+// Phase 8.3 Admin Business Operations Routes
+router.get("/api/admin/tours", adminToursListRoute);
+router.get("/api/admin/tours/:id", adminTourDetailRoute);
+router.post("/api/admin/tours", adminTourCreateRoute);
+router.put("/api/admin/tours/:id", adminTourUpdateRoute);
+router.delete("/api/admin/tours/:id", adminTourDeleteRoute);
+router.get("/api/admin/services", adminServicesListRoute);
+router.post("/api/admin/services", adminServiceCreateRoute);
+router.put("/api/admin/services/:id", adminServiceUpdateRoute);
+router.put("/api/admin/services/:id/price", adminServicePriceUpdateRoute);
+router.put("/api/admin/services/:id/toggle", adminServiceToggleRoute);
+router.get("/api/admin/bookings", adminBookingsListRoute);
+router.get("/api/admin/bookings/:id", adminBookingDetailRoute);
+router.post("/api/admin/bookings/:id/cancel", adminBookingCancelRoute);
+router.post("/api/admin/bookings/:id/mock-refund", adminBookingMockRefundRoute);
+router.get("/api/admin/revenue/analytics", adminRevenueAnalyticsRoute);
+router.get("/api/admin/revenue/export", adminRevenueExportRoute);
+
 
 const MAX_DEFAULT_BYTES = 10 * 1024; // 10 KB limit for general endpoints
 const MAX_ITINERARY_BYTES = 30 * 1024; // 30 KB limit for multi-day itineraries
@@ -215,3 +274,6 @@ export default {
     }
   },
 };
+
+
+

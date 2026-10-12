@@ -17,9 +17,13 @@ import { VisitorsPage } from "./pages/VisitorsPage";
 import { AIProfilesPage } from "./pages/AIProfilesPage";
 import { LogsPage } from "./pages/LogsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { RevenuePage } from "./pages/RevenuePage";
+import { ToursPage } from "./pages/ToursPage";
+import { ServicesPage } from "./pages/ServicesPage";
+import { BookingsPage } from "./pages/BookingsPage";
 
 export const App: React.FC = () => {
-  const [currentTab, setCurrentTab] = useState<AdminTab>("overview");
+  const [currentTab, setCurrentTab] = useState<AdminTab>("revenue");
   const [isLoading, setIsLoading] = useState(false);
   const [overview, setOverview] = useState<SystemOverview | null>(null);
   const [profiles, setProfiles] = useState<AdminAIProfile[]>([]);
@@ -177,6 +181,13 @@ export const App: React.FC = () => {
         />
 
         <main className="page-content">
+          {/* Phase 8.3 Business Modules */}
+          {currentTab === "revenue" && <RevenuePage onNotify={addToast} />}
+          {currentTab === "tours" && <ToursPage onNotify={addToast} />}
+          {currentTab === "services" && <ServicesPage onNotify={addToast} />}
+          {currentTab === "bookings" && <BookingsPage onNotify={addToast} />}
+
+          {/* System & AI Modules */}
           {currentTab === "overview" && (
             <OverviewPage overview={overview} onNavigateTab={setCurrentTab} />
           )}
@@ -218,4 +229,3 @@ export const App: React.FC = () => {
 };
 
 export default App;
-

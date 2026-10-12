@@ -23,11 +23,65 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       <nav className="sidebar-nav">
+        <div
+          style={{
+            padding: "8px 16px 4px",
+            fontSize: 11,
+            fontWeight: 700,
+            color: "#94a3b8",
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+          }}
+        >
+          VẬN HÀNH DU LỊCH
+        </div>
+
+        <button
+          className={`nav-item ${currentTab === "revenue" ? "active" : ""}`}
+          onClick={() => onSelectTab("revenue")}
+        >
+          <span>Doanh thu mô phỏng</span>
+        </button>
+
+        <button
+          className={`nav-item ${currentTab === "tours" ? "active" : ""}`}
+          onClick={() => onSelectTab("tours")}
+        >
+          <span>Quản lý Tour</span>
+        </button>
+
+        <button
+          className={`nav-item ${currentTab === "services" ? "active" : ""}`}
+          onClick={() => onSelectTab("services")}
+        >
+          <span>Dịch vụ & Bảng giá</span>
+        </button>
+
+        <button
+          className={`nav-item ${currentTab === "bookings" ? "active" : ""}`}
+          onClick={() => onSelectTab("bookings")}
+        >
+          <span>Quản lý Đơn đặt</span>
+        </button>
+
+        <div
+          style={{
+            padding: "16px 16px 4px",
+            fontSize: 11,
+            fontWeight: 700,
+            color: "#94a3b8",
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+          }}
+        >
+          HỆ THỐNG & AI
+        </div>
+
         <button
           className={`nav-item ${currentTab === "overview" ? "active" : ""}`}
           onClick={() => onSelectTab("overview")}
         >
-          <span>Tổng quan</span>
+          <span>Tổng quan kỹ thuật</span>
         </button>
 
         <button
@@ -62,10 +116,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       <div className="sidebar-footer">
-        <div><strong>Phase 5A</strong> — Additive Delivery</div>
+        <div><strong>Phase 8.3</strong> — Business & Operations</div>
         <div style={{ marginTop: 4, color: "#64748b" }}>Single-Admin Protected</div>
       </div>
     </aside>
   );
 };
-

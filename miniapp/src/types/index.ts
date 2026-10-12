@@ -157,3 +157,112 @@ export interface ItineraryOutput {
   updatedAt?: string;
 }
 
+
+
+// Phase 8.3 Business & Booking Types
+export interface TourProduct {
+  id: string;
+  code: string;
+  title: string;
+  description: string;
+  coverImageUrl?: string | null;
+  durationDays: number;
+  minTravelers: number;
+  maxTravelers: number;
+  basePrice: number;
+  status: string;
+  isDemo: boolean;
+  destinations?: Place[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TourService {
+  id: string;
+  code: string;
+  name: string;
+  category: string;
+  description?: string | null;
+  providerName?: string | null;
+  placeId?: string | null;
+  isActive: boolean;
+  isDemo: boolean;
+  pricingRule?: {
+    id: string;
+    pricingMode: string;
+    unitPrice: number;
+    currency: string;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BookingQuote {
+  id: string;
+  quote_reference: string;
+  user_id: string;
+  tour_id?: string | null;
+  itinerary_id?: string | null;
+  itinerary_version?: number | null;
+  adults_count: number;
+  children_count: number;
+  duration_days: number;
+  subtotal: number;
+  total_price: number;
+  currency: string;
+  expires_at: string;
+  status: string;
+  created_at: string;
+}
+
+export interface BookingQuoteItem {
+  id: string;
+  quote_id: string;
+  service_id?: string | null;
+  item_name: string;
+  category: string;
+  pricing_mode: string;
+  unit_price: number;
+  quantity: number;
+  line_total: number;
+}
+
+export interface TourBooking {
+  id: string;
+  booking_reference: string;
+  user_id: string;
+  quote_id: string;
+  tour_id?: string | null;
+  itinerary_id?: string | null;
+  customer_name: string;
+  customer_phone: string;
+  customer_email?: string | null;
+  adults_count: number;
+  children_count: number;
+  total_amount: number;
+  currency: string;
+  booking_status: "pending" | "confirmed" | "cancelled" | "completed";
+  payment_status: "unpaid" | "paid" | "partially_refunded" | "refunded" | "failed";
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TourBookingItem {
+  id: string;
+  booking_id: string;
+  service_id?: string | null;
+  item_name: string;
+  category: string;
+  pricing_mode: string;
+  unit_price: number;
+  quantity: number;
+  line_total: number;
+}
+
+export interface MockPaymentResult {
+  success: boolean;
+  booking: TourBooking;
+  transactionReference: string;
+  message: string;
+}

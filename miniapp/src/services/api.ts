@@ -1,4 +1,4 @@
-import type { Category, Place, Article, ChatRequest, ChatResponse, AuthUser, PlannerRequest, ItineraryOutput } from "../types";
+import type { Category, Place, Article, ChatRequest, ChatResponse, AuthUser, PlannerRequest, ItineraryOutput, TourProduct, TourService, BookingQuote, BookingQuoteItem, TourBooking, TourBookingItem, MockPaymentResult } from "../types";
 import { STORAGE_KEY_AUTH_TOKEN } from "../constants";
 import { safeStorage } from "./storage";
 
@@ -210,4 +210,98 @@ export const api = {
     const res = await safeFetch(`/api/itineraries/${encodeURIComponent(id)}`, { method: "DELETE" });
     return handleResponse<{ success: boolean }>(res);
   },
+
+  // Phase 8.3 Business & Booking APIs
+  async getTours(): Promise<{ tours: TourProduct[] }> {
+    const res = await safeFetch("/api/tours");
+    return handleResponse<{ tours: TourProduct[] }>(res);
+  },
+
+  async getTourById(id: string): Promise<{ tour: TourProduct }> {
+    const res = await safeFetch(`/api/tours/${encodeURIComponent(id)}`);
+    return handleResponse<{ tour: TourProduct }>(res);
+  },
+
+  async getServices(category?: string): Promise<{ services: TourService[] }> {
+    const qs = category ? `?category=${encodeURIComponent(category)}` : "";
+    const res = await safeFetch(`/api/services${qs}`);
+    return handleResponse<{ services: TourService[] }>(res);
+  },
+
+  async requestQuote(payload: {
+    tourId?: string | null;
+    itineraryId?: string | null;
+    selectedServiceIds?: string[];
+    adultsCount: number;
+    childrenCount: number;
+    durationDays?: number;
+  }): Promise<{ quote: BookingQuote; items: BookingQuoteItem[] }> {
+    const res = await safeFetch("/api/quotes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<{ quote: BookingQuote; items: BookingQuoteItem[] }>(res);
+  },
+
+  async createBooking(payload: {
+    quoteReference: string;
+    customerName: string;
+    customerPhone: string;
+    customerEmail?: string | null;
+    notes?: string | null;
+    idempotencyKey?: string | null;
+  }): Promise<{ booking: TourBooking; items: TourBookingItem[] }> {
+    const res = await safeFetch("/api/bookings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<{ booking: TourBooking; items: TourBookingItem[] }>(res);
+  },
+
+  async getMyBookings(): Promise<{ bookings: TourBooking[] }> {
+    const res = await safeFetch("/api/bookings");
+    return handleResponse<{ bookings: TourBooking[] }>(res);
+  },
+
+  async getMyBookingDetail(id: string): Promise<{
+    booking: TourBooking;
+    items: TourBookingItem[];
+    paymentAttempts: any[];
+    events: any[];
+  }> {
+    const res = await safeFetch(`/api/bookings/${encodeURIComponent(id)}`);
+    return handleResponse<{
+      booking: TourBooking;
+      items: TourBookingItem[];
+      paymentAttempts: any[];
+      events: any[];
+    }>(res);
+  },
+
+  async processMockPayment(payload: {
+    bookingId: string;
+    paymentMethod?: string;
+    simulateStatus: "success" | "failed";
+    idempotencyKey?: string;
+  }): Promise<MockPaymentResult> {
+    const res = await safeFetch(`/api/bookings/${encodeURIComponent(payload.bookingId)}/pay`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<MockPaymentResult>(res);
+  },
+
+  async cancelMyBooking(bookingId: string, reason?: string): Promise<{ booking: TourBooking }> {
+    const res = await safeFetch(`/api/bookings/${encodeURIComponent(bookingId)}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    return handleResponse<{ booking: TourBooking }>(res);
+  },
+
 };
+

@@ -79,5 +79,137 @@ export interface SystemOverview {
   } | null;
 }
 
-export type AdminTab = "overview" | "visitors" | "profiles" | "logs" | "settings";
+export type AdminTab = "overview" | "revenue" | "tours" | "services" | "bookings" | "visitors" | "profiles" | "logs" | "settings";
 
+
+
+// Phase 8.3 Business & Booking Types for Admin
+export type PricingMode = "fixed" | "per_person" | "per_adult" | "per_child" | "per_group" | "per_day" | "per_night";
+export type TourStatus = "draft" | "published" | "archived";
+export type ServiceCategory = "guide" | "transport" | "ticket" | "accommodation" | "meal" | "other";
+export type BookingStatus = "pending" | "confirmed" | "cancelled" | "completed";
+export type PaymentStatus = "unpaid" | "paid" | "partially_refunded" | "refunded" | "failed";
+
+export interface AdminTourProduct {
+  id: string;
+  code: string;
+  title: string;
+  description: string;
+  coverImageUrl?: string | null;
+  durationDays: number;
+  minTravelers: number;
+  maxTravelers: number;
+  basePrice: number;
+  status: TourStatus;
+  isDemo: boolean;
+  destinations?: any[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminTourInput {
+  code: string;
+  title: string;
+  description: string;
+  coverImageUrl?: string | null;
+  durationDays: number;
+  minTravelers?: number;
+  maxTravelers?: number;
+  basePrice: number;
+  status?: TourStatus;
+}
+
+export interface AdminTourService {
+  id: string;
+  code: string;
+  name: string;
+  category: ServiceCategory;
+  description?: string | null;
+  providerName?: string | null;
+  placeId?: string | null;
+  isActive: boolean;
+  isDemo: boolean;
+  pricingRule?: {
+    id: string;
+    pricingMode: PricingMode;
+    unitPrice: number;
+    currency: string;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminTourServiceInput {
+  code: string;
+  name: string;
+  category: ServiceCategory;
+  description?: string | null;
+  providerName?: string | null;
+  pricingMode: PricingMode;
+  unitPrice: number;
+}
+
+export interface AdminBookingItem {
+  id: string;
+  booking_reference: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_email?: string | null;
+  adults_count: number;
+  children_count: number;
+  total_amount: number;
+  currency: string;
+  booking_status: BookingStatus;
+  payment_status: PaymentStatus;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminBookingDetail {
+  booking: AdminBookingItem;
+  items: {
+    id: string;
+    item_name: string;
+    category: string;
+    pricing_mode: string;
+    unit_price: number;
+    quantity: number;
+    line_total: number;
+  }[];
+  paymentAttempts: {
+    id: string;
+    transaction_reference: string;
+    payment_method: string;
+    amount: number;
+    status: string;
+    refunded_amount: number;
+    failure_reason?: string | null;
+    created_at: string;
+  }[];
+  events: {
+    id: string;
+    event_type: string;
+    from_status?: string | null;
+    to_status?: string | null;
+    actor: string;
+    reason?: string | null;
+    created_at: string;
+  }[];
+}
+
+export interface RevenueAnalyticsData {
+  totalBookings: number;
+  pendingBookings: number;
+  successfulBookings: number;
+  failedPaymentAttempts: number;
+  cancelledBookings: number;
+  grossSimulatedRevenue: number;
+  simulatedRefundedAmount: number;
+  netSimulatedRevenue: number;
+  averageBookingValue: number;
+  dailyTrends: { date: string; revenue: number; bookingsCount: number }[];
+  categoryDistribution: { category: string; count: number; totalAmount: number }[];
+  statusDistribution: { status: string; count: number }[];
+  topProducts: { name: string; type: "tour" | "service"; bookedCount: number; revenue: number }[];
+}

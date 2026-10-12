@@ -16,6 +16,7 @@ const m4Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0004_admin
 const m5Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0005_identity.sql'), 'utf8');
 const m6Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0006_travel_planner.sql'), 'utf8');
 const m7Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0007_optimistic_lock_guard.sql'), 'utf8');
+const m8Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0008_business_booking.sql'), 'utf8');
 
 test('Fresh migration path: 0001 -> 0002 -> 0003 applies cleanly and verifies 100% integrity', () => {
   const db = new DatabaseSync(':memory:');
@@ -148,6 +149,36 @@ test('Fresh migration 0007_optimistic_lock_guard: creates guard table additively
   assert.equal(fkViolations.length, 0, 'Zero foreign key violations after 0007');
 });
 
+
+
+test('Fresh migration 0008_business_booking: creates business & booking tables additively', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(m1Sql);
+  db.exec(m2Sql);
+  db.exec(m3Sql);
+  db.exec(m4Sql);
+  db.exec(m5Sql);
+  db.exec(m6Sql);
+  db.exec(m7Sql);
+
+  assert.doesNotThrow(() => db.exec(m8Sql), '0008_business_booking.sql should execute cleanly');
+
+  const toursCount = db.prepare('SELECT count(*) as count FROM tour_products').get().count;
+  assert.equal(toursCount, 3, 'tour_products seeded with 3 items');
+
+  const servicesCount = db.prepare('SELECT count(*) as count FROM tour_services').get().count;
+  assert.equal(servicesCount, 5, 'tour_services seeded with 5 items');
+
+  const priceRulesCount = db.prepare('SELECT count(*) as count FROM tour_price_rules').get().count;
+  assert.equal(priceRulesCount, 5, 'tour_price_rules seeded with 5 items');
+
+  const bookingsCount = db.prepare('SELECT count(*) as count FROM tour_bookings').get().count;
+  assert.equal(bookingsCount, 0, 'tour_bookings starts empty');
+
+  const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+  assert.equal(fkViolations.length, 0, 'Zero foreign key violations after 0008');
+});
+
 test('Preexisting database upgrade path: upgrades safely without data loss to 0006', () => {
   const db = new DatabaseSync(':memory:');
   db.exec(m1Sql);
@@ -160,6 +191,7 @@ test('Preexisting database upgrade path: upgrades safely without data loss to 00
   assert.doesNotThrow(() => db.exec(m5Sql), '0005 must upgrade preexisting DB cleanly');
   assert.doesNotThrow(() => db.exec(m6Sql), '0006 must upgrade preexisting DB cleanly');
   assert.doesNotThrow(() => db.exec(m7Sql), '0007 must upgrade preexisting DB cleanly');
+  assert.doesNotThrow(() => db.exec(m8Sql), '0008 must upgrade preexisting DB cleanly');
 
   const customPlace = db.prepare("SELECT * FROM places WHERE id = 'custom-preexist'").get();
   assert.ok(customPlace, 'Custom pre-existing record must be preserved');
@@ -187,6 +219,7 @@ test('Idempotency: Re-running 0002, 0003, 0004, 0005, and 0006 statements does n
   assert.doesNotThrow(() => db.exec(m5Sql), 'Second run of 0005_identity.sql should not throw');
   assert.doesNotThrow(() => db.exec(m6Sql), 'Second run of 0006_travel_planner.sql should not throw');
   assert.doesNotThrow(() => db.exec(m7Sql), 'Second run of 0007_optimistic_lock_guard.sql should not throw');
+  assert.doesNotThrow(() => db.exec(m8Sql), 'Second run of 0008_business_booking.sql should not throw');
 
   const placesCount = db.prepare('SELECT count(*) as count FROM places').get().count;
   assert.equal(placesCount, 19, 'Places count must remain 19 on re-run');
@@ -194,3 +227,4 @@ test('Idempotency: Re-running 0002, 0003, 0004, 0005, and 0006 statements does n
   const articlesCount = db.prepare('SELECT count(*) as count FROM articles').get().count;
   assert.equal(articlesCount, 42, 'Articles count must remain 42 on re-run');
 });
+

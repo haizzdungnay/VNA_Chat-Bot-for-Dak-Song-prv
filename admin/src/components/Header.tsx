@@ -10,7 +10,11 @@ interface HeaderProps {
 }
 
 const TAB_TITLES: Record<AdminTab, string> = {
-  overview: "Tổng quan hệ thống",
+  revenue: "Báo cáo doanh thu mô phỏng",
+  tours: "Quản lý danh mục Tour",
+  services: "Dịch vụ & Bảng giá du lịch",
+  bookings: "Quản lý đơn đặt tour & dịch vụ",
+  overview: "Tổng quan kỹ thuật hệ thống",
   visitors: "Hồ sơ người dùng đã đồng ý lưu",
   profiles: "Cấu hình AI & Profiles",
   logs: "Nhật ký hệ thống & Thống kê",
@@ -55,4 +59,3 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
-
