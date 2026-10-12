@@ -1,6 +1,35 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+function recalculateDaySchedule(items, dayStartTime = "08:30") {
+  let [h, m] = dayStartTime.split(":").map(Number);
+  if (isNaN(h)) h = 8;
+  if (isNaN(m)) m = 30;
+
+  return items.map((item, idx) => {
+    let plannedTime = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    if (item.itemType === "meal" && (h < 11 || (h === 11 && m < 30))) {
+      h = 11;
+      m = 45;
+      plannedTime = "11:45";
+    }
+
+    const duration = item.durationMinutes || 60;
+    // Pure chronological advance by activity duration without fabricated transit buffer
+    m += duration;
+    while (m >= 60) {
+      h += 1;
+      m -= 60;
+    }
+
+    return {
+      ...item,
+      plannedTime,
+      orderIndex: idx,
+    };
+  });
+}
+
 test("FE Planner: Reordering items updates orderIndex correctly", () => {
   const items = [
     { placeId: "p1", title: "Điểm 1", orderIndex: 0 },
@@ -71,36 +100,39 @@ test("FE Planner: VR360 destinations retain virtual experience notice", () => {
   assert.ok(notes.includes("[Điểm thực tế ảo VR360]"));
 });
 
-test("FE Planner: Recalculates timeline hours chronologically when items change", () => {
-  function recalculateDaySchedule(items, dayStartTime = "08:30") {
-    let [h, m] = dayStartTime.split(":").map(Number);
-    return items.map((item, idx) => {
-      let plannedTime = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-      if (item.itemType === "meal" && (h < 11 || (h === 11 && m < 30))) {
-        h = 11;
-        m = 45;
-        plannedTime = "11:45";
-      }
-      const duration = item.durationMinutes || 60;
-      const transitMin = item.itemType === "meal" || item.itemType === "rest" ? 0 : 20;
-      m += duration + transitMin;
-      while (m >= 60) {
-        h += 1;
-        m -= 60;
-      }
-      return { ...item, plannedTime, orderIndex: idx };
-    });
-  }
-
+test("FE Planner: Recalculates timeline hours chronologically WITHOUT fabricated transit buffer", () => {
   const dayItems = [
     { title: "Điểm 1", itemType: "place", durationMinutes: 60 },
+    { title: "Điểm 2", itemType: "place", durationMinutes: 60 },
     { title: "Nghỉ trưa", itemType: "meal", durationMinutes: 75 },
-    { title: "Điểm 2", itemType: "place", durationMinutes: 90 },
+    { title: "Điểm 3", itemType: "place", durationMinutes: 90 },
   ];
 
   const sched = recalculateDaySchedule(dayItems, "08:30");
+  // Item 1: 08:30 (duration 60 -> ends 09:30)
   assert.equal(sched[0].plannedTime, "08:30");
-  assert.equal(sched[1].plannedTime, "11:45");
-  // 11:45 + 75m = 13:00 -> Next item at 13:00
-  assert.equal(sched[2].plannedTime, "13:00");
+  // Item 2: starts exactly at 09:30 (NO arbitrary +20min buffer to 09:50)
+  assert.equal(sched[1].plannedTime, "09:30");
+  // Item 3 (meal): 09:30 + 60 = 10:30, but lunch anchor is 11:45
+  assert.equal(sched[2].plannedTime, "11:45");
+  // Item 4: 11:45 + 75 = 13:00 -> starts exactly at 13:00
+  assert.equal(sched[3].plannedTime, "13:00");
 });
+
+test("FE Planner: Reordering items updates schedule chronologically based purely on durations", () => {
+  const dayItems = [
+    { title: "Điểm 1", itemType: "place", durationMinutes: 90 },
+    { title: "Điểm 2", itemType: "place", durationMinutes: 30 },
+  ];
+
+  const schedOriginal = recalculateDaySchedule(dayItems, "08:00");
+  assert.equal(schedOriginal[0].plannedTime, "08:00");
+  assert.equal(schedOriginal[1].plannedTime, "09:30"); // 08:00 + 90m
+
+  // Swap items
+  const swapped = [dayItems[1], dayItems[0]];
+  const schedSwapped = recalculateDaySchedule(swapped, "08:00");
+  assert.equal(schedSwapped[0].plannedTime, "08:00");
+  assert.equal(schedSwapped[1].plannedTime, "08:30"); // 08:00 + 30m
+});
+

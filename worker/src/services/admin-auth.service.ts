@@ -40,14 +40,14 @@ export function setTestJwksProvider(provider: ((team: string) => Promise<{ keys:
   testJwksProvider = provider;
 }
 
-async function getJwksForTeam(teamName: string): Promise<any[]> {
+async function getJwksForTeam(teamName: string, forceFresh = false): Promise<any[]> {
   if (testJwksProvider) {
     const res = await testJwksProvider(teamName);
     return res.keys || [];
   }
 
   const cached = jwksCache.get(teamName);
-  if (cached && cached.expiresAt > Date.now()) {
+  if (!forceFresh && cached && cached.expiresAt > Date.now()) {
     return cached.keys;
   }
 
@@ -77,8 +77,14 @@ export async function verifyJwtSignature(
       return { valid: false, error: `Thuật toán JWT không được hỗ trợ: ${header.alg}. Yêu cầu RS256.` };
     }
 
-    const jwks = await getJwksForTeam(teamName);
-    const keyJwk = jwks.find((k) => (header.kid ? k.kid === header.kid : true));
+    let jwks = await getJwksForTeam(teamName, false);
+    let keyJwk = jwks.find((k) => (header.kid ? k.kid === header.kid : true));
+    if (!keyJwk && header.kid) {
+      // Key rotation: try refetching JWKS fresh
+      jwks = await getJwksForTeam(teamName, true);
+      keyJwk = jwks.find((k) => k.kid === header.kid);
+    }
+
     if (!keyJwk) {
       return { valid: false, error: `Không tìm thấy khóa công khai phù hợp với kid: ${header.kid || "default"}` };
     }
@@ -139,6 +145,15 @@ export async function authenticateAdmin(req: Request, env: Env): Promise<AdminAu
     };
   }
 
+  // Fail-closed: CF_ACCESS_TEAM_NAME and CF_ACCESS_AUD are strictly required for verifying JWT assertion
+  if (!env.CF_ACCESS_TEAM_NAME || !env.CF_ACCESS_AUD) {
+    return {
+      authenticated: false,
+      status: 401,
+      error: "Cấu hình bảo mật Cloudflare Access chưa đầy đủ (Thiếu CF_ACCESS_TEAM_NAME hoặc CF_ACCESS_AUD).",
+    };
+  }
+
   try {
     const parts = jwtAssertion.split(".");
     if (parts.length !== 3) {
@@ -150,30 +165,22 @@ export async function authenticateAdmin(req: Request, env: Env): Promise<AdminAu
     }
 
     // Cryptographic RS256 signature verification against Cloudflare Access JWKS
-    if (env.CF_ACCESS_TEAM_NAME) {
-      const sigCheck = await verifyJwtSignature(jwtAssertion, env.CF_ACCESS_TEAM_NAME);
-      if (!sigCheck.valid) {
-        return {
-          authenticated: false,
-          status: 401,
-          error: sigCheck.error || "Chữ ký Cloudflare Access JWT không hợp lệ.",
-        };
-      }
+    const sigCheck = await verifyJwtSignature(jwtAssertion, env.CF_ACCESS_TEAM_NAME);
+    if (!sigCheck.valid) {
+      return {
+        authenticated: false,
+        status: 401,
+        error: sigCheck.error || "Chữ ký Cloudflare Access JWT không hợp lệ.",
+      };
     }
 
     const payload = JSON.parse(base64UrlDecode(parts[1]));
 
-    // Expiry check
-    if (!payload.exp || typeof payload.exp !== "number") {
-      return {
-        authenticated: false,
-        status: 401,
-        error: "Mã xác thực không có thời hạn hợp lệ (Missing exp).",
-      };
-    }
-
     const nowSec = Math.floor(Date.now() / 1000);
-    if (payload.exp < nowSec) {
+    const clockSkewSec = 60;
+
+    // Expiry check with safe clock skew
+    if (!payload.exp || typeof payload.exp !== "number" || payload.exp < (nowSec - clockSkewSec)) {
       return {
         authenticated: false,
         status: 401,
@@ -181,29 +188,43 @@ export async function authenticateAdmin(req: Request, env: Env): Promise<AdminAu
       };
     }
 
-    // Issuer check if team name configured
-    if (env.CF_ACCESS_TEAM_NAME) {
-      const expectedIss = `https://${env.CF_ACCESS_TEAM_NAME.trim()}.cloudflareaccess.com`;
-      if (payload.iss !== expectedIss) {
-        return {
-          authenticated: false,
-          status: 403,
-          error: "Cloudflare Access Team Issuer không khớp.",
-        };
-      }
+    // Not-before claim check if present
+    if (payload.nbf && typeof payload.nbf === "number" && payload.nbf > (nowSec + clockSkewSec)) {
+      return {
+        authenticated: false,
+        status: 401,
+        error: "Mã xác thực chưa đến thời điểm hiệu lực (JWT not active yet).",
+      };
     }
 
-    // Audience check if AUD configured
-    if (env.CF_ACCESS_AUD) {
-      const expectedAud = env.CF_ACCESS_AUD.trim();
-      const payloadAuds = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-      if (!payloadAuds.includes(expectedAud)) {
-        return {
-          authenticated: false,
-          status: 403,
-          error: "Cloudflare Access Audience Tag không khớp.",
-        };
-      }
+    // Issued-at claim check if present
+    if (payload.iat && typeof payload.iat === "number" && payload.iat > (nowSec + clockSkewSec)) {
+      return {
+        authenticated: false,
+        status: 401,
+        error: "Mã xác thực được tạo trong tương lai (JWT issued in future).",
+      };
+    }
+
+    // Issuer check: must strictly match configured team domain
+    const expectedIss = `https://${env.CF_ACCESS_TEAM_NAME.trim()}.cloudflareaccess.com`;
+    if (payload.iss !== expectedIss) {
+      return {
+        authenticated: false,
+        status: 403,
+        error: "Cloudflare Access Team Issuer không khớp.",
+      };
+    }
+
+    // Audience check: must contain configured audience tag
+    const expectedAud = env.CF_ACCESS_AUD.trim();
+    const payloadAuds = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+    if (!payloadAuds.includes(expectedAud)) {
+      return {
+        authenticated: false,
+        status: 403,
+        error: "Cloudflare Access Audience Tag không khớp.",
+      };
     }
 
     // Single-admin email allowlist check
@@ -244,3 +265,4 @@ export async function authenticateAdmin(req: Request, env: Env): Promise<AdminAu
     };
   }
 }
+

@@ -21,6 +21,7 @@ function createPlannerTestEnv(overrides = {}) {
   const m4 = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0004_admin_extension.sql'), 'utf8');
   const m5 = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0005_identity.sql'), 'utf8');
   const m6 = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0006_travel_planner.sql'), 'utf8');
+  const m7 = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0007_optimistic_lock_guard.sql'), 'utf8');
 
   db.exec(m1);
   db.exec(m2);
@@ -28,6 +29,7 @@ function createPlannerTestEnv(overrides = {}) {
   db.exec(m4);
   db.exec(m5);
   db.exec(m6);
+  db.exec(m7);
 
   const makeStmt = (sql, params = []) => ({
     bind(...newParams) {
@@ -46,19 +48,46 @@ function createPlannerTestEnv(overrides = {}) {
       const info = stmt.run(...params);
       return { meta: { changes: info.changes, last_row_id: info.lastInsertRowid } };
     },
+    _runSync() {
+      const stmt = db.prepare(sql);
+      const info = stmt.run(...params);
+      return { meta: { changes: info.changes, last_row_id: info.lastInsertRowid } };
+    },
   });
+
+  let batchLock = Promise.resolve();
 
   return {
     DB: {
       prepare(sql) {
         return makeStmt(sql);
       },
+      // Real D1 atomic transaction simulation with serialized BEGIN/COMMIT/ROLLBACK
       async batch(statements) {
-        const results = [];
-        for (const s of statements) {
-          results.push(await s.run());
+        const runBatch = () => {
+          db.exec('BEGIN IMMEDIATE');
+          try {
+            const results = [];
+            for (const s of statements) {
+              results.push(s._runSync ? s._runSync() : { meta: { changes: 1 } });
+            }
+            db.exec('COMMIT');
+            return results;
+          } catch (err) {
+            try { db.exec('ROLLBACK'); } catch {}
+            throw err;
+          }
+        };
+
+        const prev = batchLock;
+        let resolveLock;
+        batchLock = new Promise((r) => (resolveLock = r));
+        await prev;
+        try {
+          return runBatch();
+        } finally {
+          resolveLock();
         }
-        return results;
       },
     },
     rawDb: db,
@@ -87,7 +116,13 @@ test('PlannerService: Input validation rejects invalid fields', () => {
   // Invalid date format
   assert.throws(
     () => planner.validateRequest({ durationDays: 3, travelersCount: 2, startDate: '01-11-2026' }),
-    /Ngày khởi hành phải đúng định dạng YYYY-MM-DD/
+    /Ngày khởi hành không hợp lệ hoặc không đúng định dạng YYYY-MM-DD/
+  );
+
+  // Non-existent calendar date (February 30)
+  assert.throws(
+    () => planner.validateRequest({ durationDays: 3, travelersCount: 2, startDate: '2026-02-30' }),
+    /Ngày khởi hành không hợp lệ hoặc không đúng định dạng YYYY-MM-DD/
   );
 });
 
@@ -147,6 +182,30 @@ test('PlannerService: AI error or malformed JSON triggers deterministic fallback
   assert.equal(res.days.length, 2);
 
   PlannerService.testAIOverride = null;
+});
+
+test('PlannerService: Fabricated travel time is strictly zero without routing data', async () => {
+  const env = createPlannerTestEnv();
+  const planner = new PlannerService(env);
+
+  const preview = await planner.generatePreview({
+    durationDays: 1,
+    travelersCount: 2,
+    startDate: '2026-11-20',
+    departureTime: '08:00',
+    pace: 'moderate',
+  });
+
+  // Verify warning notifies user that timeline does not include unverified transit
+  assert.ok(preview.warnings?.some((w) => w.includes('CHƯA BAO GỒM thời gian di chuyển')));
+
+  // Verify items advance purely by activity duration, without fabricated +20min buffers
+  const items = preview.days[0].items;
+  assert.equal(items[0].plannedTime, '08:00');
+  // First item duration is 60m -> 08:00 + 60m = 09:00
+  if (items[1].itemType === 'place') {
+    assert.equal(items[1].plannedTime, '09:00', 'Second item must start at 09:00 without +20m buffer');
+  }
 });
 
 test('PlannerService: CRUD operations and data isolation between users', async () => {
@@ -306,6 +365,29 @@ test('PlannerService: Server-side validation rejects invalid placeId during save
   );
 });
 
+test('PlannerService: Optimistic locking rejects missing version on update with 400', async () => {
+  const env = createPlannerTestEnv();
+  const planner = new PlannerService(env);
+  const user = 'user-uuid-lock';
+  env.rawDb.exec(`INSERT INTO users (id, display_name, status) VALUES ('${user}', 'User Lock', 'active');`);
+
+  const preview = await planner.generatePreview({
+    durationDays: 1,
+    travelersCount: 2,
+    startDate: '2026-11-20',
+  });
+
+  const saved = await planner.saveItinerary(user, preview);
+
+  // Update without version
+  const badPayload = { ...saved };
+  delete badPayload.version;
+  await assert.rejects(
+    async () => planner.updateItinerary(user, saved.id, badPayload),
+    /Phiên bản lịch trình \(version\) là bắt buộc/
+  );
+});
+
 test('PlannerService: Optimistic locking rejects stale version update with 409', async () => {
   const env = createPlannerTestEnv();
   const planner = new PlannerService(env);
@@ -322,7 +404,7 @@ test('PlannerService: Optimistic locking rejects stale version update with 409',
   assert.equal(saved.version, 1);
 
   // First update succeeds and increments version to 2
-  const updated1 = await planner.updateItinerary(user, saved.id, { ...saved, title: 'Bản sửa lần 1' });
+  const updated1 = await planner.updateItinerary(user, saved.id, { ...saved, title: 'Bản sửa lần 1', version: 1 });
   assert.equal(updated1.version, 2);
 
   // Stale update using version 1 fails with 409 Conflict
@@ -347,18 +429,47 @@ test('PlannerService: True concurrent updates on version 1 allows strictly one w
   const saved = await planner.saveItinerary(user, preview);
   assert.equal(saved.version, 1);
 
-  // Two simultaneous update attempts with version 1
-  const attemptA = planner.updateItinerary(user, saved.id, {
+  const places = env.rawDb.prepare('SELECT id FROM places LIMIT 4').all();
+  const placeA1 = places[0].id;
+  const placeA2 = places[1].id;
+  const placeB1 = places[2].id;
+  const placeB2 = places[3].id;
+
+  // Device A creates completely different activities
+  const payloadA = {
     ...saved,
     title: 'Update from Device A',
     version: 1,
-  });
+    days: [
+      {
+        ...saved.days[0],
+        items: [
+          { itemType: 'place', placeId: placeA1, title: 'Activity A1', durationMinutes: 60, orderIndex: 0, isUserSelected: false },
+          { itemType: 'place', placeId: placeA2, title: 'Activity A2', durationMinutes: 90, orderIndex: 1, isUserSelected: false },
+        ],
+      },
+    ],
+  };
 
-  const attemptB = planner.updateItinerary(user, saved.id, {
+  // Device B creates completely different activities
+  const payloadB = {
     ...saved,
     title: 'Update from Device B',
     version: 1,
-  });
+    days: [
+      {
+        ...saved.days[0],
+        items: [
+          { itemType: 'place', placeId: placeB1, title: 'Activity B1', durationMinutes: 45, orderIndex: 0, isUserSelected: false },
+          { itemType: 'place', placeId: placeB2, title: 'Activity B2', durationMinutes: 75, orderIndex: 1, isUserSelected: false },
+        ],
+      },
+    ],
+  };
+
+  // Run both simultaneously
+  const attemptA = planner.updateItinerary(user, saved.id, payloadA);
+  const attemptB = planner.updateItinerary(user, saved.id, payloadB);
 
   const results = await Promise.allSettled([attemptA, attemptB]);
   const fulfilled = results.filter((r) => r.status === 'fulfilled');
@@ -368,12 +479,82 @@ test('PlannerService: True concurrent updates on version 1 allows strictly one w
   assert.equal(rejected.length, 1, 'Exactly 1 update must be rejected');
   assert.equal(rejected[0].reason.statusCode, 409, 'Rejected update must have 409 status code');
 
-  // Verify database integrity: items must belong to the winner and version is 2
+  const winner = fulfilled[0].value;
+  const winningTitle = winner.title;
+
+  // Verify database integrity: items must belong 100% to the winner
   const currentInDb = await planner.getItinerary(user, saved.id);
-  assert.equal(currentInDb.version, 2);
-  assert.ok(
-    currentInDb.title === 'Update from Device A' || currentInDb.title === 'Update from Device B'
+  assert.equal(currentInDb.version, 2, 'Version must be incremented exactly once to 2');
+  assert.equal(currentInDb.title, winningTitle);
+
+  const finalItemTitles = currentInDb.days[0].items.map((it) => it.title);
+  if (winningTitle === 'Update from Device A') {
+    assert.deepEqual(finalItemTitles, ['Activity A1', 'Activity A2']);
+  } else {
+    assert.deepEqual(finalItemTitles, ['Activity B1', 'Activity B2']);
+  }
+
+  // Guard table must be clean
+  const guardCount = env.rawDb.prepare('SELECT count(*) as count FROM optimistic_lock_guard').get().count;
+  assert.equal(guardCount, 0, 'Guard table must be empty after batch');
+});
+
+test('PlannerService: Mid-batch failure aborts and rolls back entire transaction atomically', async () => {
+  const env = createPlannerTestEnv();
+  const planner = new PlannerService(env);
+  const user = 'user-uuid-rollback';
+  env.rawDb.exec(`INSERT INTO users (id, display_name, status) VALUES ('${user}', 'User Rollback', 'active');`);
+
+  const preview = await planner.generatePreview({
+    durationDays: 1,
+    travelersCount: 2,
+    startDate: '2026-11-20',
+  });
+
+  const saved = await planner.saveItinerary(user, preview);
+  assert.equal(saved.version, 1);
+
+  const badPayload = {
+    ...saved,
+    title: 'Update Should Rollback',
+    version: 1,
+  };
+
+  // Directly tamper batch preparation by temporarily mocking prepare to fail on child insert
+  const originalPrepare = env.DB.prepare;
+  let callCount = 0;
+  env.DB.prepare = (sql) => {
+    if (sql.includes('INSERT INTO itinerary_items')) {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          bind: () => ({
+            run: async () => {
+              throw new Error('SIMULATED_SQL_FAILURE_MID_BATCH');
+            },
+            _runSync: () => {
+              throw new Error('SIMULATED_SQL_FAILURE_MID_BATCH');
+            },
+          }),
+        };
+      }
+    }
+    return originalPrepare(sql);
+  };
+
+  await assert.rejects(
+    async () => planner.updateItinerary(user, saved.id, badPayload),
+    /SIMULATED_SQL_FAILURE_MID_BATCH/
   );
+
+  // Restore prepare
+  env.DB.prepare = originalPrepare;
+
+  // Verify DB state was 100% rolled back: version is still 1, title is original, items exist
+  const currentInDb = await planner.getItinerary(user, saved.id);
+  assert.equal(currentInDb.version, 1, 'Version must remain 1 after transaction rollback');
+  assert.equal(currentInDb.title, saved.title, 'Title must remain unchanged');
+  assert.equal(currentInDb.days[0].items.length, saved.days[0].items.length, 'Original items must remain intact');
 });
 
 test('PlannerService: Rejects place items missing placeId or having invalid duration', async () => {
@@ -409,5 +590,72 @@ test('PlannerService: Rejects place items missing placeId or having invalid dura
   await assert.rejects(
     async () => planner.saveItinerary('user-uuid-1', preview),
     /Thời lượng hoạt động.*phải từ 15 đến 360 phút/
+  );
+});
+
+test('PlannerService: Validator rejects invalid planned times (25:99, 12:70, abc)', async () => {
+  const env = createPlannerTestEnv();
+  env.rawDb.exec("INSERT INTO users (id, display_name, status) VALUES ('user-uuid-1', 'User 1', 'active');");
+  const planner = new PlannerService(env);
+
+  const preview = await planner.generatePreview({
+    durationDays: 1,
+    travelersCount: 2,
+    startDate: '2026-11-20',
+  });
+
+  // 25:99
+  preview.days[0].items[0].plannedTime = '25:99';
+  await assert.rejects(
+    async () => planner.saveItinerary('user-uuid-1', preview),
+    /không đúng định dạng HH:mm/
+  );
+
+  // 12:70
+  preview.days[0].items[0].plannedTime = '12:70';
+  await assert.rejects(
+    async () => planner.saveItinerary('user-uuid-1', preview),
+    /không đúng định dạng HH:mm/
+  );
+
+  // abc
+  preview.days[0].items[0].plannedTime = 'abc';
+  await assert.rejects(
+    async () => planner.saveItinerary('user-uuid-1', preview),
+    /không đúng định dạng HH:mm/
+  );
+});
+
+test('PlannerService: Validator rejects invalid dates (2026-02-30) and duplicate dayNumbers', async () => {
+  const env = createPlannerTestEnv();
+  env.rawDb.exec("INSERT INTO users (id, display_name, status) VALUES ('user-uuid-1', 'User 1', 'active');");
+  const planner = new PlannerService(env);
+
+  const preview = await planner.generatePreview({
+    durationDays: 2,
+    travelersCount: 2,
+    startDate: '2026-11-20',
+  });
+
+  // 2026-02-30 calendar invalid date
+  preview.startDate = '2026-02-30';
+  await assert.rejects(
+    async () => planner.saveItinerary('user-uuid-1', preview),
+    /Ngày khởi hành không hợp lệ/
+  );
+  preview.startDate = '2026-11-20';
+
+  // Duplicate dayNumber
+  preview.days[1].dayNumber = preview.days[0].dayNumber;
+  await assert.rejects(
+    async () => planner.saveItinerary('user-uuid-1', preview),
+    /trùng lặp/
+  );
+
+  // Day number out of range
+  preview.days[1].dayNumber = 99;
+  await assert.rejects(
+    async () => planner.saveItinerary('user-uuid-1', preview),
+    /không hợp lệ/
   );
 });

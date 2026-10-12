@@ -27,8 +27,8 @@ function recalculateDaySchedule(items: ItineraryItemOutput[], dayStartTime = "08
     }
 
     const duration = item.durationMinutes || 60;
-    const transitMin = item.itemType === "meal" || item.itemType === "rest" ? 0 : 20;
-    m += duration + transitMin;
+    // Pure chronological advance by activity duration without fabricated transit buffer
+    m += duration;
     while (m >= 60) {
       h += 1;
       m -= 60;

@@ -15,6 +15,7 @@ const m3Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0003_schem
 const m4Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0004_admin_extension.sql'), 'utf8');
 const m5Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0005_identity.sql'), 'utf8');
 const m6Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0006_travel_planner.sql'), 'utf8');
+const m7Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0007_optimistic_lock_guard.sql'), 'utf8');
 
 test('Fresh migration path: 0001 -> 0002 -> 0003 applies cleanly and verifies 100% integrity', () => {
   const db = new DatabaseSync(':memory:');
@@ -126,6 +127,27 @@ test('Fresh migration 0006_travel_planner: creates travel planner tables additiv
   assert.equal(fkViolations.length, 0, 'Zero foreign key violations after 0006');
 });
 
+
+test('Fresh migration 0007_optimistic_lock_guard: creates guard table additively and enforces CHECK(guard_id = 1)', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(m1Sql);
+  db.exec(m2Sql);
+  db.exec(m3Sql);
+  db.exec(m4Sql);
+  db.exec(m5Sql);
+  db.exec(m6Sql);
+
+  assert.doesNotThrow(() => db.exec(m7Sql), '0007_optimistic_lock_guard.sql should execute cleanly');
+
+  // Verify guard table exists and enforces CHECK constraint
+  assert.doesNotThrow(() => db.exec('INSERT INTO optimistic_lock_guard (guard_id) VALUES (1);'));
+  assert.throws(() => db.exec('INSERT INTO optimistic_lock_guard (guard_id) VALUES (0);'), /CHECK constraint failed/);
+  db.exec('DELETE FROM optimistic_lock_guard;');
+
+  const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+  assert.equal(fkViolations.length, 0, 'Zero foreign key violations after 0007');
+});
+
 test('Preexisting database upgrade path: upgrades safely without data loss to 0006', () => {
   const db = new DatabaseSync(':memory:');
   db.exec(m1Sql);
@@ -137,6 +159,7 @@ test('Preexisting database upgrade path: upgrades safely without data loss to 00
   assert.doesNotThrow(() => db.exec(m4Sql), '0004 must upgrade preexisting DB cleanly');
   assert.doesNotThrow(() => db.exec(m5Sql), '0005 must upgrade preexisting DB cleanly');
   assert.doesNotThrow(() => db.exec(m6Sql), '0006 must upgrade preexisting DB cleanly');
+  assert.doesNotThrow(() => db.exec(m7Sql), '0007 must upgrade preexisting DB cleanly');
 
   const customPlace = db.prepare("SELECT * FROM places WHERE id = 'custom-preexist'").get();
   assert.ok(customPlace, 'Custom pre-existing record must be preserved');
@@ -163,6 +186,7 @@ test('Idempotency: Re-running 0002, 0003, 0004, 0005, and 0006 statements does n
   assert.doesNotThrow(() => db.exec(m4Sql), 'Second run of 0004_admin_extension.sql should not throw');
   assert.doesNotThrow(() => db.exec(m5Sql), 'Second run of 0005_identity.sql should not throw');
   assert.doesNotThrow(() => db.exec(m6Sql), 'Second run of 0006_travel_planner.sql should not throw');
+  assert.doesNotThrow(() => db.exec(m7Sql), 'Second run of 0007_optimistic_lock_guard.sql should not throw');
 
   const placesCount = db.prepare('SELECT count(*) as count FROM places').get().count;
   assert.equal(placesCount, 19, 'Places count must remain 19 on re-run');

@@ -91,20 +91,31 @@ async function getTestRsaKeys() {
   return testRsaKeypair;
 }
 
-async function createMockJwt(payload, tamperSignature = false) {
+async function createMockJwt(payload, tamperSignature = false, customHeader = null, tamperPayload = false) {
   const keys = await getTestRsaKeys();
-  const header = { alg: "RS256", typ: "JWT", kid: "test-access-kid-1" };
+  const header = customHeader || { alg: "RS256", typ: "JWT", kid: "test-access-kid-1" };
   const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString("base64url");
   const data = `${b64(header)}.${b64(payload)}`;
-  const signatureBytes = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    keys.privateKey,
-    new TextEncoder().encode(data)
-  );
-  let sigB64 = Buffer.from(signatureBytes).toString("base64url");
-  if (tamperSignature) {
-    sigB64 = sigB64.slice(0, -6) + "xxxxxx";
+  let sigB64 = "";
+  if (header.alg === "none") {
+    sigB64 = "";
+  } else {
+    const signatureBytes = await crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      keys.privateKey,
+      new TextEncoder().encode(data)
+    );
+    sigB64 = Buffer.from(signatureBytes).toString("base64url");
+    if (tamperSignature) {
+      sigB64 = sigB64.slice(0, -6) + "xxxxxx";
+    }
   }
+
+  if (tamperPayload) {
+    const tamperedPayloadObj = { ...payload, email: "hacked@other.com" };
+    return `${b64(header)}.${b64(tamperedPayloadObj)}.${sigB64}`;
+  }
+
   return `${data}.${sigB64}`;
 }
 
@@ -275,6 +286,225 @@ test('Auth: Tampered RS256 signature is rejected with 401 Unauthorized', async (
   assert.equal(res.authenticated, false);
   assert.equal(res.status, 401);
   assert.ok(res.error.includes('Chữ ký'));
+});
+
+
+test('Auth: Tampered payload with valid signature is rejected with 401 Unauthorized', async () => {
+  const env = createAdminTestEnv();
+  const tamperedToken = await createMockJwt(
+    {
+      iss: 'https://vna-tourism.cloudflareaccess.com',
+      aud: 'aud-test-secret-1234',
+      email: 'owner@daksong.vn',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    },
+    false,
+    null,
+    true // tamper payload after signing
+  );
+
+  const req = new Request('https://worker.test/api/admin/overview', {
+    headers: { 'cf-access-jwt-assertion': tamperedToken },
+  });
+
+  const res = await authenticateAdmin(req, env);
+  assert.equal(res.authenticated, false);
+  assert.equal(res.status, 401);
+});
+
+test('Auth: JWT with alg=none is rejected with 401 Unauthorized', async () => {
+  const env = createAdminTestEnv();
+  const noneToken = await createMockJwt(
+    {
+      iss: 'https://vna-tourism.cloudflareaccess.com',
+      aud: 'aud-test-secret-1234',
+      email: 'owner@daksong.vn',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    },
+    false,
+    { alg: 'none', typ: 'JWT' }
+  );
+
+  const req = new Request('https://worker.test/api/admin/overview', {
+    headers: { 'cf-access-jwt-assertion': noneToken },
+  });
+
+  const res = await authenticateAdmin(req, env);
+  assert.equal(res.authenticated, false);
+  assert.equal(res.status, 401);
+  assert.ok(res.error.includes('RS256'));
+});
+
+test('Auth: JWT with unknown kid is rejected with 401 Unauthorized', async () => {
+  const env = createAdminTestEnv();
+  const unknownKidToken = await createMockJwt(
+    {
+      iss: 'https://vna-tourism.cloudflareaccess.com',
+      aud: 'aud-test-secret-1234',
+      email: 'owner@daksong.vn',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    },
+    false,
+    { alg: 'RS256', typ: 'JWT', kid: 'non-existent-kid-999' }
+  );
+
+  const req = new Request('https://worker.test/api/admin/overview', {
+    headers: { 'cf-access-jwt-assertion': unknownKidToken },
+  });
+
+  const res = await authenticateAdmin(req, env);
+  assert.equal(res.authenticated, false);
+  assert.equal(res.status, 401);
+  assert.ok(res.error.includes('kid'));
+});
+
+test('Auth: JWT with mismatched issuer is rejected with 403 Forbidden', async () => {
+  const env = createAdminTestEnv();
+  const wrongIssToken = await createMockJwt({
+    iss: 'https://other-team.cloudflareaccess.com',
+    aud: 'aud-test-secret-1234',
+    email: 'owner@daksong.vn',
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  });
+
+  const req = new Request('https://worker.test/api/admin/overview', {
+    headers: { 'cf-access-jwt-assertion': wrongIssToken },
+  });
+
+  const res = await authenticateAdmin(req, env);
+  assert.equal(res.authenticated, false);
+  assert.equal(res.status, 403);
+  assert.ok(res.error.includes('Issuer'));
+});
+
+test('Auth: JWT with mismatched audience is rejected with 403 Forbidden', async () => {
+  const env = createAdminTestEnv();
+  const wrongAudToken = await createMockJwt({
+    iss: 'https://vna-tourism.cloudflareaccess.com',
+    aud: 'aud-wrong-audience-tag',
+    email: 'owner@daksong.vn',
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  });
+
+  const req = new Request('https://worker.test/api/admin/overview', {
+    headers: { 'cf-access-jwt-assertion': wrongAudToken },
+  });
+
+  const res = await authenticateAdmin(req, env);
+  assert.equal(res.authenticated, false);
+  assert.equal(res.status, 403);
+  assert.ok(res.error.includes('Audience'));
+});
+
+test('Auth: JWT not active yet (nbf in future) is rejected with 401 Unauthorized', async () => {
+  const env = createAdminTestEnv();
+  const futureNbfToken = await createMockJwt({
+    iss: 'https://vna-tourism.cloudflareaccess.com',
+    aud: 'aud-test-secret-1234',
+    email: 'owner@daksong.vn',
+    exp: Math.floor(Date.now() / 1000) + 3600,
+    nbf: Math.floor(Date.now() / 1000) + 500, // 500s in future
+  });
+
+  const req = new Request('https://worker.test/api/admin/overview', {
+    headers: { 'cf-access-jwt-assertion': futureNbfToken },
+  });
+
+  const res = await authenticateAdmin(req, env);
+  assert.equal(res.authenticated, false);
+  assert.equal(res.status, 401);
+  assert.ok(res.error.includes('chưa đến thời điểm hiệu lực'));
+});
+
+test('Auth: JWT issued in future (iat in future) is rejected with 401 Unauthorized', async () => {
+  const env = createAdminTestEnv();
+  const futureIatToken = await createMockJwt({
+    iss: 'https://vna-tourism.cloudflareaccess.com',
+    aud: 'aud-test-secret-1234',
+    email: 'owner@daksong.vn',
+    exp: Math.floor(Date.now() / 1000) + 3600,
+    iat: Math.floor(Date.now() / 1000) + 500, // 500s in future
+  });
+
+  const req = new Request('https://worker.test/api/admin/overview', {
+    headers: { 'cf-access-jwt-assertion': futureIatToken },
+  });
+
+  const res = await authenticateAdmin(req, env);
+  assert.equal(res.authenticated, false);
+  assert.equal(res.status, 401);
+  assert.ok(res.error.includes('tạo trong tương lai'));
+});
+
+test('Auth: Missing CF_ACCESS_TEAM_NAME or CF_ACCESS_AUD fails closed with 401', async () => {
+  const validToken = await createMockJwt({
+    iss: 'https://vna-tourism.cloudflareaccess.com',
+    aud: 'aud-test-secret-1234',
+    email: 'owner@daksong.vn',
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  });
+
+  // Missing CF_ACCESS_TEAM_NAME
+  const envNoTeam = createAdminTestEnv({ CF_ACCESS_TEAM_NAME: undefined });
+  const req1 = new Request('https://worker.test/api/admin/overview', {
+    headers: { 'cf-access-jwt-assertion': validToken },
+  });
+  const res1 = await authenticateAdmin(req1, envNoTeam);
+  assert.equal(res1.authenticated, false);
+  assert.equal(res1.status, 401);
+
+  // Missing CF_ACCESS_AUD
+  const envNoAud = createAdminTestEnv({ CF_ACCESS_AUD: undefined });
+  const res2 = await authenticateAdmin(req1, envNoAud);
+  assert.equal(res2.authenticated, false);
+  assert.equal(res2.status, 401);
+
+  // Missing both
+  const envNoBoth = createAdminTestEnv({ CF_ACCESS_TEAM_NAME: undefined, CF_ACCESS_AUD: undefined });
+  const res3 = await authenticateAdmin(req1, envNoBoth);
+  assert.equal(res3.authenticated, false);
+  assert.equal(res3.status, 401);
+});
+
+test('Auth: JWKS fetch failure rejects with 401 Unauthorized', async () => {
+  const env = createAdminTestEnv();
+  const validToken = await createMockJwt({
+    iss: 'https://vna-tourism.cloudflareaccess.com',
+    aud: 'aud-test-secret-1234',
+    email: 'owner@daksong.vn',
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  });
+
+  // Temporarily simulate failing JWKS provider
+  setTestJwksProvider(async () => {
+    throw new Error('JWKS endpoint connection refused');
+  });
+
+  const req = new Request('https://worker.test/api/admin/overview', {
+    headers: { 'cf-access-jwt-assertion': validToken },
+  });
+
+  const res = await authenticateAdmin(req, env);
+  assert.equal(res.authenticated, false);
+  assert.equal(res.status, 401);
+
+  // Restore JWKS
+  getTestRsaKeys();
+});
+
+test('Auth: Staging or Production environment strictly blocks ADMIN_DEV_MOCK_AUTH', async () => {
+  // Staging
+  const stagingEnv = createAdminTestEnv({ ENVIRONMENT: 'staging', ADMIN_DEV_MOCK_AUTH: 'true' });
+  const req1 = new Request('https://worker.test/api/admin/overview');
+  const res1 = await authenticateAdmin(req1, stagingEnv);
+  assert.equal(res1.authenticated, false);
+  assert.equal(res1.status, 401);
+
+  // Production
+  const prodEnv = createAdminTestEnv({ ENVIRONMENT: 'production', ADMIN_DEV_MOCK_AUTH: 'true' });
+  const res2 = await authenticateAdmin(req1, prodEnv);
+  assert.equal(res2.authenticated, false);
+  assert.equal(res2.status, 401);
 });
 
 // 4. AdminService CRUD, Masking, and Activation Tests

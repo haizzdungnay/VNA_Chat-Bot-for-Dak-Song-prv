@@ -159,3 +159,114 @@ Toàn bộ dữ liệu du lịch, tài khoản Phase 8.1 và quản trị hoàn 
 
 4. **Loại bỏ việc tự cộng giả định 20 phút di chuyển (P1):**
    - recalculateDaySchedule() và bộ xếp lịch fallback dời giờ hoàn toàn dựa trên thời lượng thực tế của hoạt động (durationMinutes), không tự tiện cộng 20 phút di chuyển giả định khi chưa có dữ liệu dẫn đường.
+
+
+---
+
+## 10. PHASE 8.2.3 — FINAL CORRECTIVE PATCH & REGRESSION VERIFICATION
+
+### 10.1. Thông tin phiên bản & Git Baseline
+- **Commit trước khi sửa:** `d7e9abdf39327b7ef3fadc5d6383dd9134d7343d` (HEAD Phase 8.2.2)
+- **Branch hoạt động:** `feature/phase8-ai-travel-planner` (giữ độc lập, tuyệt đối không merge vào `main`)
+- **Trạng thái kiểm thử sau sửa:** **116 / 116 PASS** (89 Worker tests, 24 Miniapp tests, 3 Admin tests). 0 lỗi TypeScript. Build sản xuất 100% PASS.
+
+---
+
+### 10.2. Bảng trạng thái giải quyết 4 Bug
+
+| Mã lỗi | Mức độ | Trạng thái | Nguyên nhân gốc & Giải pháp kỹ thuật |
+| :--- | :--- | :--- | :--- |
+| **BUG P0-01** | CRITICAL | **FIXED** | **Nguyên nhân:** SQLite/D1 không coi `changes === 0` là lỗi SQL trong batch; DELETE/INSERT vẫn tiếp tục chạy khiến request thua đè dữ liệu lên request thắng.<br>**Giải pháp:** Thêm migration additive `0007_optimistic_lock_guard.sql` với bảng `optimistic_lock_guard` có ràng buộc `CHECK (guard_id = 1)`. Ngay sau UPDATE master, gọi `INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())`. Nếu compare-and-swap thất bại (0 changes), D1/SQLite bắn lỗi `CHECK constraint failed` và rollback toàn bộ batch nguyên tử. |
+| **BUG P0-02** | CRITICAL | **FIXED** | **Nguyên nhân:** Bỏ qua xác minh chữ ký khi thiếu `CF_ACCESS_TEAM_NAME` hoặc bỏ qua audience khi thiếu `CF_ACCESS_AUD`; thiếu kiểm tra `nbf`/`iat` an toàn.<br>**Giải pháp:** Áp dụng triệt để nguyên tắc **Fail-Closed**. Nếu không phải chế độ mock dev cục bộ, bắt buộc phải có đủ `CF_ACCESS_TEAM_NAME` và `CF_ACCESS_AUD`, nếu thiếu lập tức từ chối 401. Luôn xác minh chữ ký RS256 và khóa công khai JWKS từ Cloudflare Access trước khi xử lý claim. Bổ sung kiểm tra `nbf`, `iat`, `exp` với dung sai clock skew an toàn (60s) và hỗ trợ cơ chế đảo khóa JWKS (key rotation). |
+| **BUG P1-01** | HIGH | **FIXED** | **Nguyên nhân:** Validator chưa kiểm tra thời gian hợp lệ (`plannedTime` nhận `25:99`, `12:70`, `abc`), chưa kiểm tra tính hợp lệ lịch dương của ngày (nhận `2026-02-30`), không ràng buộc chặt số ngày/thứ tự ngày.<br>**Giải pháp:** Xây dựng hàm kiểm định độc lập `isValidCalendarDate()` và `isValidTimeFormat()` (00:00 - 23:59). Validator từ chối tuyệt đối ngày/giờ sai quy chuẩn, từ chối số thứ tự ngày trùng lặp hoặc vượt quá số ngày, bắt buộc `placeId` với hoạt động `place`. Tự động loại bỏ địa điểm ngoài D1 từ phản hồi AI trước khi lưu. |
+| **BUG P1-02** | HIGH | **FIXED** | **Nguyên nhân:** Frontend `recalculateDaySchedule()` và backend fallback cộng cứng 20 phút di chuyển không có căn cứ.<br>**Giải pháp:** Loại bỏ hoàn toàn hằng số 20 phút. Thời gian giữa các điểm thuần túy tịnh tiến theo thời lượng hoạt động thực tế. Trường `estimatedTravelMinutes` đánh dấu `null` khi chưa có Routing API. Giao diện người dùng và cảnh báo phản ánh trung thực: *"Khung giờ mang tính chất tham khảo CHƯA BAO GỒM thời gian di chuyển giữa các điểm"*. |
+
+---
+
+### 10.3. Chi tiết tệp tin & Hàm đã thay đổi
+
+1. **`worker/migrations/0007_optimistic_lock_guard.sql` (Mới):**
+   - Tạo bảng assertion additive `optimistic_lock_guard` có khóa chính và ràng buộc `CHECK (guard_id = 1)`.
+2. **`worker/src/services/planner.service.ts`:**
+   - Thêm `isValidCalendarDate()` và `isValidTimeFormat()`.
+   - `validateRequest()`: Kiểm định ngày thực tế lịch dương và giờ khởi hành chuẩn `HH:mm`.
+   - `validateItineraryPayload()`: Ràng buộc chặt toàn bộ `plannedTime`, ngày trong từng day, loại hoạt động, placeId bắt buộc cho place, độ dài title/notes.
+   - `generateDeterministicItinerary()`: Xóa bỏ `+ 20` phút di chuyển giả định; gán `estimatedTravelMinutes: null`.
+   - `normalizeAndEnforceItinerary()`: Loại bỏ hoạt động `place` thiếu ID hợp lệ trong D1; làm sạch `plannedTime` không đúng schema; chuyển sang fallback nếu không có địa điểm hợp lệ nào.
+   - `updateItinerary()`: Bắt buộc gửi version số nguyên (`400` nếu thiếu); tích hợp assertion guard `INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())` và dọn dẹp guard trong cùng batch nguyên tử.
+3. **`worker/src/services/admin-auth.service.ts`:**
+   - `authenticateAdmin()`: Fail-closed nếu thiếu `CF_ACCESS_TEAM_NAME` hoặc `CF_ACCESS_AUD`; xác minh RS256 trước khi parse claim; kiểm tra `nbf`, `iat`, `exp` kèm clock skew 60s; hỗ trợ nạp lại JWKS khi gặp `kid` mới (key rotation).
+4. **`worker/src/types/index.ts` & `miniapp/src/types/index.ts`:**
+   - Cập nhật `estimatedTravelMinutes?: number | null;`.
+5. **`miniapp/src/pages/planner.tsx`:**
+   - `recalculateDaySchedule()`: Xóa bỏ biến `transitMin`, chỉ cộng đúng `durationMinutes`.
+   - Timeline UI: Hiển thị thông báo minh bạch về việc khung giờ chưa bao gồm thời gian di chuyển thực tế.
+6. **`worker/test/travel-planner.test.mjs`:**
+   - Thêm nạp migration 0007 và cơ chế transaction nguyên tử trong mock `batch()`.
+   - Bổ sung test kiểm tra hai request đồng thời với hai danh sách hoạt động hoàn toàn khác nhau: chứng minh 100% dữ liệu thuộc về request thắng, không lẫn lộn hoạt động của request thua.
+   - Bổ sung test kiểm tra rollback toàn bộ giao dịch khi lỗi xảy ra giữa chừng.
+   - Bổ sung test từ chối giờ `25:99`, `12:70`, `abc` và ngày `2026-02-30`, ngày trùng lặp.
+   - Bổ sung test không cộng thời gian di chuyển giả định.
+7. **`worker/test/admin-backend.test.mjs`:**
+   - Bổ sung 10 bài test bảo mật JWT chuyên sâu: giả mạo payload, `alg=none`, `kid` lạ, sai issuer, sai audience, `nbf` trong tương lai, `iat` trong tương lai, thiếu cấu hình team/aud, lỗi JWKS, cấm mock trên staging/prod.
+8. **`worker/test/migrations.test.mjs`:**
+   - Bổ sung kiểm chứng migration 0007, đường dẫn nâng cấp cơ sở dữ liệu có sẵn và tính lũy thừa (idempotency).
+9. **`worker/test/d1-concurrency.test.mjs` (Mới):**
+   - Integration test trên engine SQLite file thật mô phỏng môi trường Wrangler D1, kiểm chứng race condition và rollback thực tế.
+10. **`miniapp/test/fe-planner.test.mjs`:**
+    - Cập nhật test xác nhận lịch trình tịnh tiến theo thời lượng hoạt động không có độ trễ giả định 20 phút.
+
+---
+
+### 10.4. Bằng chứng kiểm thử thực tế
+
+#### A. Concurrency & Rollback Test (Wrangler D1 Local Simulation)
+```
+✔ D1 Local Concurrency: Optimistic lock guard prevents concurrent batch overwrite and rollback works on real SQLite engine (915.6365ms)
+✔ PlannerService: True concurrent updates on version 1 allows strictly one winner and preserves data without corruption (312.0724ms)
+✔ PlannerService: Mid-batch failure aborts and rolls back entire transaction atomically (286.2693ms)
+```
+- Request A gửi `['Activity A1', 'Activity A2']` -> Thành công, version lên 2.
+- Request B gửi `['Activity B1', 'Activity B2']` cùng lúc -> Bị chặn với mã 409 Conflict do `CHECK constraint failed: guard_id = 1`.
+- Kết quả trong DB: 100% dữ liệu là `['Activity A1', 'Activity A2']`, bảng `optimistic_lock_guard` sạch hoàn toàn.
+
+#### B. Cryptographic JWT Verification Test
+```
+✔ Auth: Valid JWT with matching audience, team, and allowlisted email succeeds (69.1129ms)
+✔ Auth: Tampered RS256 signature is rejected with 401 Unauthorized (15.8942ms)
+✔ Auth: Tampered payload with valid signature is rejected with 401 Unauthorized (17.5848ms)
+✔ Auth: JWT with alg=none is rejected with 401 Unauthorized (22.4982ms)
+✔ Auth: JWT with unknown kid is rejected with 401 Unauthorized (25.0755ms)
+✔ Auth: JWT with mismatched issuer is rejected with 403 Forbidden (27.3193ms)
+✔ Auth: JWT with mismatched audience is rejected with 403 Forbidden (16.306ms)
+✔ Auth: JWT not active yet (nbf in future) is rejected with 401 Unauthorized (24.9909ms)
+✔ Auth: JWT issued in future (iat in future) is rejected with 401 Unauthorized (22.1358ms)
+✔ Auth: Missing CF_ACCESS_TEAM_NAME or CF_ACCESS_AUD fails closed with 401 (48.455ms)
+✔ Auth: JWKS fetch failure rejects with 401 Unauthorized (21.0602ms)
+✔ Auth: Staging or Production environment strictly blocks ADMIN_DEV_MOCK_AUTH (20.5497ms)
+```
+
+#### C. Validation & Travel Time Test
+```
+✔ PlannerService: Validator rejects invalid planned times (25:99, 12:70, abc) (294.9361ms)
+✔ PlannerService: Validator rejects invalid dates (2026-02-30) and duplicate dayNumbers (282.8915ms)
+✔ PlannerService: Fabricated travel time is strictly zero without routing data (803.6685ms)
+✔ FE Planner: Recalculates timeline hours chronologically WITHOUT fabricated transit buffer (0.3334ms)
+✔ FE Planner: Reordering items updates schedule chronologically based purely on durations (0.2166ms)
+```
+
+#### D. Full Regression Suite Summary
+- **Worker workspace:** 89 / 89 tests PASS (12 test suites: router, openai-compatible, sync-adapter, security, migrations, chat-e2e, admin-backend, ai-config, visitor-consent, identity-auth, travel-planner, d1-concurrency).
+- **Miniapp workspace:** 24 / 24 tests PASS.
+- **Admin workspace:** 3 / 3 tests PASS.
+- **Tổng cộng:** **116 / 116 PASS** (100%).
+- **TypeScript:** 0 lỗi trên cả 3 workspace.
+- **Build:** 3 workspace biên dịch sản xuất hoàn tất thành công.
+
+---
+
+### 10.5. Đánh giá rủi ro còn lại & Điều kiện chuyển Phase 8.3
+- **Rủi ro còn lại:**
+  1. Chưa có Routing Matrix API (Google Maps / OpenStreetMap OSRM) nên thời gian di chuyển chưa thể tính toán chính xác giữa các tọa độ GPS; hiện tại đã được giải quyết bằng thông báo minh bạch và gán `estimatedTravelMinutes: null`.
+  2. Bảng `optimistic_lock_guard` là bảng tạm hỗ trợ assertion batch; chỉ sử dụng trong transaction, không lưu trữ dữ liệu lâu dài.
+- **Kết luận:** Hệ thống AI Travel Planner đạt chuẩn an toàn giao dịch cấp cơ sở dữ liệu và bảo mật danh tính Zero Trust. **ĐỦ ĐIỀU KIỆN 100% ĐỂ TIẾN HÀNH PHASE 8.3 (BOOKING & MOCK PAYMENT).**

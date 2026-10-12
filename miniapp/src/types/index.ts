@@ -121,7 +121,7 @@ export interface ItineraryItemOutput {
   notes?: string;
   orderIndex: number;
   isUserSelected: boolean;
-  estimatedTravelMinutes?: number;
+  estimatedTravelMinutes?: number | null;
   place?: Place;
 }
 

@@ -15,6 +15,23 @@ import { createAIProvider } from "./ai";
 import { AdminService } from "./admin.service";
 import { ValidationError } from "../utils/errors";
 
+export function isValidCalendarDate(dateStr: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return (
+    date.getUTCFullYear() === y &&
+    date.getUTCMonth() === m - 1 &&
+    date.getUTCDate() === d
+  );
+}
+
+export function isValidTimeFormat(timeStr: string): boolean {
+  if (!/^\d{2}:\d{2}$/.test(timeStr)) return false;
+  const [h, m] = timeStr.split(":").map(Number);
+  return h >= 0 && h <= 23 && m >= 0 && m <= 59;
+}
+
 export class PlannerService {
   private env: Env;
   private placeRepo: PlaceRepository;
@@ -51,8 +68,8 @@ export class PlannerService {
     }
 
     const startDate = typeof req.startDate === "string" ? req.startDate.trim() : "";
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
-      throw new ValidationError("Ngày khởi hành phải đúng định dạng YYYY-MM-DD.", 400);
+    if (!isValidCalendarDate(startDate)) {
+      throw new ValidationError("Ngày khởi hành không hợp lệ hoặc không đúng định dạng YYYY-MM-DD.", 400);
     }
 
     const validPaces = new Set(["relaxed", "moderate", "active"]);
@@ -68,9 +85,10 @@ export class PlannerService {
       ? req.budgetPreference
       : "moderate") as BudgetPreference;
 
-    const departureTime = typeof req.departureTime === "string" && /^\d{2}:\d{2}$/.test(req.departureTime.trim())
-      ? req.departureTime.trim()
-      : "08:00";
+    const departureTime =
+      typeof req.departureTime === "string" && isValidTimeFormat(req.departureTime.trim())
+        ? req.departureTime.trim()
+        : "08:00";
 
     const interests = Array.isArray(req.interests)
       ? req.interests.filter((x): x is string => typeof x === "string")
@@ -110,35 +128,115 @@ export class PlannerService {
     if (!Number.isInteger(children) || children < 0 || children > travelers) {
       throw new ValidationError("Số lượng trẻ em không thể vượt quá tổng số người.", 400);
     }
-    if (!data.startDate || !/^\d{4}-\d{2}-\d{2}$/.test(data.startDate)) {
-      throw new ValidationError("Ngày khởi hành không đúng định dạng YYYY-MM-DD.", 400);
+    if (!data.startDate || !isValidCalendarDate(data.startDate)) {
+      throw new ValidationError("Ngày khởi hành không hợp lệ hoặc không đúng định dạng YYYY-MM-DD.", 400);
+    }
+    if (data.departureTime && !isValidTimeFormat(data.departureTime)) {
+      throw new ValidationError("Giờ khởi hành không đúng định dạng HH:mm (00:00 - 23:59).", 400);
+    }
+    if (typeof data.title !== "string" || !data.title.trim() || data.title.trim().length > 200) {
+      throw new ValidationError("Tiêu đề lịch trình phải từ 1 đến 200 ký tự.", 400);
+    }
+    if (data.summary && (typeof data.summary !== "string" || data.summary.length > 1000)) {
+      throw new ValidationError("Tóm tắt lịch trình không được vượt quá 1000 ký tự.", 400);
     }
     if (!Array.isArray(data.days) || data.days.length !== duration) {
-      throw new ValidationError(`Số lượng ngày trong lịch trình (${data.days?.length || 0}) không khớp với tổng số ngày (${duration}).`, 400);
+      throw new ValidationError(
+        `Số lượng ngày trong lịch trình (${data.days?.length || 0}) không khớp với tổng số ngày (${duration}).`,
+        400
+      );
     }
 
-    for (const day of data.days) {
+    const seenDayNumbers = new Set<number>();
+    const validItemTypes = new Set(["place", "meal", "rest", "transport"]);
+
+    for (let dayIdx = 0; dayIdx < data.days.length; dayIdx++) {
+      const day = data.days[dayIdx];
+      if (!day || typeof day !== "object") {
+        throw new ValidationError(`Dữ liệu ngày thứ ${dayIdx + 1} không hợp lệ.`, 400);
+      }
+      const dayNum = Number(day.dayNumber);
+      if (!Number.isInteger(dayNum) || dayNum < 1 || dayNum > duration) {
+        throw new ValidationError(
+          `Số thứ tự ngày '${day.dayNumber}' không hợp lệ (phải từ 1 đến ${duration}).`,
+          400
+        );
+      }
+      if (seenDayNumbers.has(dayNum)) {
+        throw new ValidationError(`Số thứ tự ngày ${dayNum} bị trùng lặp trong lịch trình.`, 400);
+      }
+      seenDayNumbers.add(dayNum);
+
+      if (day.date) {
+        if (!isValidCalendarDate(day.date)) {
+          throw new ValidationError(`Ngày ${day.date} của ngày ${dayNum} không phải là ngày hợp lệ.`, 400);
+        }
+      }
+
       if (!Array.isArray(day.items)) {
         throw new ValidationError(`Danh sách hoạt động của ngày ${day.dayNumber} không hợp lệ.`, 400);
       }
+      if (day.items.length > 15) {
+        throw new ValidationError(
+          `Số lượng hoạt động của ngày ${day.dayNumber} vượt quá giới hạn cho phép (tối đa 15).`,
+          400
+        );
+      }
+
       for (let idx = 0; idx < day.items.length; idx++) {
         const item = day.items[idx];
         if (!item || typeof item !== "object") {
           throw new ValidationError(`Hoạt động thứ ${idx + 1} của ngày ${day.dayNumber} không hợp lệ.`, 400);
         }
+        if (!item.itemType || !validItemTypes.has(item.itemType)) {
+          throw new ValidationError(
+            `Loại hoạt động '${item.itemType}' của hoạt động thứ ${idx + 1} không hợp lệ.`,
+            400
+          );
+        }
+        if (typeof item.title !== "string" || !item.title.trim() || item.title.trim().length > 200) {
+          throw new ValidationError(
+            `Tên hoạt động thứ ${idx + 1} của ngày ${day.dayNumber} phải từ 1 đến 200 ký tự.`,
+            400
+          );
+        }
+        if (item.notes && (typeof item.notes !== "string" || item.notes.length > 500)) {
+          throw new ValidationError(
+            `Ghi chú của hoạt động '${item.title}' không được vượt quá 500 ký tự.`,
+            400
+          );
+        }
+
         if (item.itemType === "place") {
-          if (!item.placeId || typeof item.placeId !== "string" || !placesMap.has(item.placeId.trim())) {
-            if (!item.placeId || typeof item.placeId !== 'string') {
-            throw new ValidationError(`Hoạt động tham quan '${item.title || idx + 1}' thiếu mã định danh địa điểm (placeId).`, 400);
+          if (!item.placeId || typeof item.placeId !== "string" || !item.placeId.trim()) {
+            throw new ValidationError(
+              `Hoạt động tham quan '${item.title || idx + 1}' thiếu mã định danh địa điểm (placeId).`,
+              400
+            );
           }
           if (!placesMap.has(item.placeId.trim())) {
-            throw new ValidationError(`Địa điểm '${item.placeId}' không tồn tại trong cơ sở dữ liệu.`, 400);
-          }
+            throw new ValidationError(
+              `Địa điểm '${item.placeId}' không tồn tại trong cơ sở dữ liệu.`,
+              400
+            );
           }
         }
+
         const durationMin = Number(item.durationMinutes);
         if (!Number.isInteger(durationMin) || durationMin < 15 || durationMin > 360) {
-          throw new ValidationError(`Thời lượng hoạt động '${item.title || idx + 1}' phải từ 15 đến 360 phút.`, 400);
+          throw new ValidationError(
+            `Thời lượng hoạt động '${item.title || idx + 1}' phải từ 15 đến 360 phút.`,
+            400
+          );
+        }
+
+        if (item.plannedTime !== undefined && item.plannedTime !== null) {
+          if (typeof item.plannedTime !== "string" || !isValidTimeFormat(item.plannedTime.trim())) {
+            throw new ValidationError(
+              `Giờ dự kiến '${item.plannedTime}' của hoạt động '${item.title || idx + 1}' không đúng định dạng HH:mm (00:00 - 23:59).`,
+              400
+            );
+          }
         }
       }
     }
@@ -344,15 +442,18 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
             title: place.name,
             plannedTime: timeStr,
             durationMinutes: duration,
-            notes: place.sourceType === "vr360"
-              ? "[Điểm thực tế ảo VR360] Điểm ngắm cảnh và trải nghiệm không gian 3D."
-              : place.shortDescription || "Tham quan và trải nghiệm vẻ đẹp thiên nhiên.",
+            estimatedTravelMinutes: null,
+            notes:
+              place.sourceType === "vr360"
+                ? "[Điểm thực tế ảo VR360] Điểm ngắm cảnh và trải nghiệm không gian 3D."
+                : place.shortDescription || "Tham quan và trải nghiệm vẻ đẹp thiên nhiên.",
             orderIndex: order++,
             isUserSelected: selectedSet.has(place.id),
             place,
           });
 
-          currentMin += duration + 20;
+          // Pure chronological advance by activity duration without fabricated transit buffer
+          currentMin += duration;
           while (currentMin >= 60) {
             currentHour += 1;
             currentMin -= 60;
@@ -367,6 +468,7 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
         title: "Nghỉ trưa & Thưởng thức ẩm thực Đắk Song",
         plannedTime: "11:45",
         durationMinutes: 75,
+        estimatedTravelMinutes: null,
         notes: "Thưởng thức các món ngon Tây Nguyên như gà nướng cơm lam, cá suối hoặc nghỉ ngơi thư giãn.",
         orderIndex: order++,
         isUserSelected: false,
@@ -389,15 +491,18 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
             title: place.name,
             plannedTime: timeStr,
             durationMinutes: duration,
-            notes: place.sourceType === "vr360"
-              ? "[Điểm thực tế ảo VR360] Chiêm ngưỡng không gian đại ngàn qua góc nhìn 360 độ."
-              : place.shortDescription || "Trải nghiệm văn hóa và cảnh quan địa phương.",
+            estimatedTravelMinutes: null,
+            notes:
+              place.sourceType === "vr360"
+                ? "[Điểm thực tế ảo VR360] Chiêm ngưỡng không gian đại ngàn qua góc nhìn 360 độ."
+                : place.shortDescription || "Trải nghiệm văn hóa và cảnh quan địa phương.",
             orderIndex: order++,
             isUserSelected: selectedSet.has(place.id),
             place,
           });
 
-          currentMin += duration + 20;
+          // Pure chronological advance by activity duration without fabricated transit buffer
+          currentMin += duration;
           while (currentMin >= 60) {
             currentHour += 1;
             currentMin -= 60;
@@ -412,6 +517,7 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
         title: "Ăn tối & Thư giãn buổi tối",
         plannedTime: "18:30",
         durationMinutes: 90,
+        estimatedTravelMinutes: null,
         notes: "Thưởng thức cà phê Đắk Song hoặc dạo bộ thư giãn trong không khí cao nguyên mát lành.",
         orderIndex: order++,
         isUserSelected: false,
@@ -427,7 +533,7 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
     }
 
     const warnings: string[] = [
-      "Thời gian di chuyển thực tế phụ thuộc vào phương tiện và cung đường trải nghiệm.",
+      "Khung giờ mang tính chất tham khảo CHƯA BAO GỒM thời gian di chuyển giữa các điểm. Thời gian hành trình thực tế phụ thuộc tuyến đường và phương tiện.",
     ];
 
     return {
@@ -465,8 +571,10 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
     const selectedSet = new Set(req.selectedPlaceIds || []);
     const normalizedDays: ItineraryDayOutput[] = [];
     const warnings: string[] = [
-      "Thời gian di chuyển thực tế phụ thuộc vào phương tiện và cung đường trải nghiệm.",
+      "Khung giờ mang tính chất tham khảo CHƯA BAO GỒM thời gian di chuyển giữa các điểm. Thời gian hành trình thực tế phụ thuộc tuyến đường và phương tiện.",
     ];
+
+    let totalValidPlaces = 0;
 
     for (let i = 0; i < req.durationDays; i++) {
       const dayRaw = raw.days[i];
@@ -478,21 +586,27 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
       if (dayRaw && Array.isArray(dayRaw.items)) {
         let order = 0;
         for (const itemRaw of dayRaw.items) {
-          const itemType = (["place", "meal", "rest", "transport"].includes(itemRaw.itemType)
-            ? itemRaw.itemType
+          const rawType = itemRaw.itemType;
+          const itemType = (["place", "meal", "rest", "transport"].includes(rawType)
+            ? rawType
             : "place") as ItineraryItemType;
 
           let placeId: string | null = null;
           let placeObj: Place | undefined = undefined;
 
-          if (itemType === "place" && itemRaw.placeId && placesMap.has(itemRaw.placeId)) {
-            // Deduplicate same place within same day unless user deliberately picked
+          if (itemType === "place") {
+            // Place item MUST have a valid verified placeId from D1
+            if (!itemRaw.placeId || !placesMap.has(itemRaw.placeId)) {
+              // Discard fabricated place without valid D1 ID
+              continue;
+            }
             if (seenPlaceOnDay.has(itemRaw.placeId)) {
               continue;
             }
             seenPlaceOnDay.add(itemRaw.placeId);
             placeId = itemRaw.placeId;
             placeObj = placesMap.get(itemRaw.placeId);
+            totalValidPlaces++;
           }
 
           const title = placeObj
@@ -508,18 +622,36 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
             notes = `[Điểm thực tế ảo VR360] ${notes || placeObj.shortDescription}`;
           }
 
+          let plannedTime: string | undefined = undefined;
+          if (typeof itemRaw.plannedTime === "string" && isValidTimeFormat(itemRaw.plannedTime.slice(0, 5))) {
+            plannedTime = itemRaw.plannedTime.slice(0, 5);
+          }
+
+          const rawDuration = Number(itemRaw.durationMinutes);
+          const durationMinutes = Number.isInteger(rawDuration) && rawDuration >= 15 && rawDuration <= 360
+            ? rawDuration
+            : 60;
+
           items.push({
             placeId,
             itemType,
             title,
-            plannedTime: typeof itemRaw.plannedTime === "string" ? itemRaw.plannedTime.slice(0, 5) : undefined,
-            durationMinutes: Number(itemRaw.durationMinutes) || 60,
+            plannedTime,
+            durationMinutes,
+            estimatedTravelMinutes: null,
             notes,
             orderIndex: order++,
             isUserSelected: placeId ? selectedSet.has(placeId) : false,
             place: placeObj,
           });
         }
+      }
+
+      if (items.length === 0) {
+        // If a day ended up empty, fallback to deterministic itinerary
+        const fallback = this.generateDeterministicItinerary(Array.from(placesMap.values()), req);
+        fallback.isFallback = true;
+        return fallback;
       }
 
       normalizedDays.push({
@@ -529,6 +661,13 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
         notes: typeof dayRaw?.notes === "string" ? dayRaw.notes.slice(0, 200) : undefined,
         items,
       });
+    }
+
+    if (totalValidPlaces === 0) {
+      // AI output had zero valid places from D1 -> fallback
+      const fallback = this.generateDeterministicItinerary(Array.from(placesMap.values()), req);
+      fallback.isFallback = true;
+      return fallback;
     }
 
     return {
@@ -639,7 +778,7 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
           )
         );
 
-        savedItems.push({ ...item, id: itemId, place: placeObj });
+        savedItems.push({ ...item, id: itemId, place: placeObj, estimatedTravelMinutes: null });
       }
 
       savedDays.push({ ...day, id: dayId, items: savedItems });
@@ -695,6 +834,10 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
   }
 
   async updateItinerary(userId: string, itineraryId: string, data: ItineraryOutput): Promise<ItineraryOutput> {
+    if (data.version === undefined || data.version === null || typeof data.version !== "number" || !Number.isInteger(data.version)) {
+      throw new ValidationError("Phiên bản lịch trình (version) là bắt buộc để cập nhật.", 400);
+    }
+
     const existing = await this.env.DB.prepare(`
       SELECT * FROM travel_itineraries WHERE id = ? AND user_id = ?
     `)
@@ -706,8 +849,8 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
     }
 
     const currentVersion = existing.version || 1;
-    // Optimistic locking check: if client supplied a version and it does not match DB, conflict!
-    if (data.version !== undefined && data.version !== currentVersion) {
+    // Optimistic locking check: if client supplied version does not match DB, conflict!
+    if (data.version !== currentVersion) {
       throw new ValidationError("Xung đột phiên bản: Lịch trình này đã được cập nhật từ thiết bị khác. Vui lòng tải lại trang.", 409);
     }
 
@@ -720,7 +863,7 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
 
     const batchStmts: any[] = [];
 
-    // Update master itinerary with optimistic version check
+    // 1. Update master itinerary with optimistic version check
     batchStmts.push(
       this.env.DB.prepare(`
         UPDATE travel_itineraries SET
@@ -749,6 +892,12 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
       )
     );
 
+    // 2. Database-level assertion: fails SQL execution with CHECK constraint error if master UPDATE changed 0 rows
+    batchStmts.push(
+      this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())")
+    );
+
+    // 3. Delete existing child records
     batchStmts.push(
       this.env.DB.prepare("DELETE FROM itinerary_items WHERE itinerary_id = ?").bind(itineraryId)
     );
@@ -795,16 +944,31 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
           )
         );
 
-        savedItems.push({ ...item, id: itemId, place: placeObj });
+        savedItems.push({ ...item, id: itemId, place: placeObj, estimatedTravelMinutes: null });
       }
 
       savedDays.push({ ...day, id: dayId, items: savedItems });
     }
 
-    const batchResults = await this.env.DB.batch(batchStmts);
-    const updateResult = batchResults[0] as any;
-    if (updateResult && updateResult.meta && updateResult.meta.changes === 0) {
-      throw new ValidationError("Xung đột phiên bản: Lịch trình này đã được cập nhật từ thiết bị khác. Vui lòng tải lại trang.", 409);
+    // 4. Clean guard in the same atomic transaction
+    batchStmts.push(
+      this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1")
+    );
+
+    try {
+      const batchResults = await this.env.DB.batch(batchStmts);
+      const updateResult = batchResults[0] as any;
+      if (updateResult && updateResult.meta && updateResult.meta.changes === 0) {
+        throw new ValidationError("Xung đột phiên bản: Lịch trình này đã được cập nhật từ thiết bị khác. Vui lòng tải lại trang.", 409);
+      }
+    } catch (err: any) {
+      if (
+        (err?.message && (err.message.includes("guard_id") || err.message.includes("CHECK constraint"))) ||
+        err?.status === 409
+      ) {
+        throw new ValidationError("Xung đột phiên bản: Lịch trình này đã được cập nhật từ thiết bị khác. Vui lòng tải lại trang.", 409);
+      }
+      throw err;
     }
 
     return {
@@ -861,6 +1025,7 @@ ${req.selectedPlaceIds && req.selectedPlaceIds.length > 0 ? `- Điểm ưu tiên
         title: item.title,
         plannedTime: item.planned_time,
         durationMinutes: item.duration_minutes,
+        estimatedTravelMinutes: null,
         notes: item.notes,
         orderIndex: item.order_index,
         isUserSelected: Boolean(item.is_user_selected),
