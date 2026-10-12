@@ -1,8 +1,8 @@
 # MA TRẬN TIÊU CHÍ NGHIỆM THU MVP TỔNG THỂ (ACCEPTANCE MATRIX)
 
 **Dự án:** VNA Group — Đắk Song Smart Tourism Zalo Mini App & AI Travel Assistant  
-**Ngày cập nhật:** 09/10/2026  
-**Phiên bản:** 2.0 (Post Phase 2-5 Closure Audit & Regression Suite)  
+**Ngày cập nhật:** 12/10/2026  
+**Phiên bản:** 3.0 (Post Phase 6 Staging Deployment & Phase 7 MVP Closure)  
 **Tiêu chuẩn nghiệm thu:** 100% kiểm chứng định lượng bằng test tự động và câu lệnh thực thi tái lập được.
 
 ---
@@ -44,14 +44,14 @@
 | **TC-SEC-03** | Bounded POST Body | Gửi POST body > 10KB không có Content-Length hoặc header sai | Worker dừng đọc stream và trả về HTTP 413, không tràn RAM isolate | **VERIFIED_LOCAL** | `worker/test/security.test.mjs` (Test 4, 5 PASS) | P0 |
 | **TC-SEC-04** | IP Trust Boundary | Xác minh nguồn IP client | Chỉ tin cậy `cf-connecting-ip`, không tin client `x-forwarded-for` | **VERIFIED_LOCAL** | `worker/src/index.ts` + ADR-08 | P0 |
 | **TC-QA-01** | Mobile Viewport Matrix | Kiểm thử viewports 360x800, 390x844, 430x932 (Light/Dark) | Layout chuẩn Stitch, safe-area notches, không bị che thanh chat | **VERIFIED_LOCAL** | `docs/qa/PHASE5_VIEWPORT_MATRIX.md` | P0 |
-| **TC-QA-02** | Zalo Real Device QA | Quét mã QR bản thử nghiệm trên Zalo điện thoại thật | Cần Zalo App ID để build package và quét QR thực tế | **REAL_DEVICE_NOT_VERIFIED** | Đã chuẩn bị Checklist chi tiết tại DECISIONS_AND_BLOCKERS.md | P0 |
+| **TC-QA-02** | Zalo Real Device QA | Quét mã QR bản thử nghiệm trên Zalo điện thoại thật | Icon hiển thị offline sắc nét (woff2 local); Chat AI nhận phản hồi HTTP 200 qua Worker staging | **VERIFIED_LIVE** | Zalo App ID 784313234570084849, version zdev-1b6f1180 / zdev-c9cc9090 | P0 |
 
 ---
 
 ## 2. TỔNG HỢP TRẠNG THÁI KIỂM THỬ TỰ ĐỘNG
 
-- **Tổng số ca kiểm thử tự động:** 43 bài test (29 Worker tests + 14 Miniapp tests).
-- **Tỉ lệ đạt:** 43 / 43 (100% PASS).
+- **Tổng số ca kiểm thử tự động:** 70 bài test (53 Worker tests + 14 Miniapp tests + 3 Admin tests).
+- **Tỉ lệ đạt:** 70 / 70 (100% PASS).
 - **TypeScript Typecheck:** 0 lỗi (cả `miniapp` và `worker`).
 - **Production Build:** Thành công 100% (`vite build` tạo bundle `www/`, `wrangler deploy --dry-run` PASS).
 
@@ -70,4 +70,17 @@
 | **TC-ADM-09** | Feature Flag Fail-Safe | Đặt `ADMIN_AI_CONFIG_ENABLED=false` | 100% lưu lượng chat sử dụng Worker Env cũ, không chạm D1 profiles | **VERIFIED_LOCAL** | `worker/test/ai-config-switch.test.mjs` (PASS) | P0 |
 | **TC-ADM-10** | Visitor Consent Opt-In/Out | Gửi opt-in / opt-out qua `/api/visitors/consent` | Cập nhật hồ sơ ẩn danh; khi opt-out đánh dấu `deleted_at`, loại khỏi admin list | **VERIFIED_LOCAL** | `worker/test/visitor-consent.test.mjs` (PASS) | P0 |
 | **TC-ADM-11** | Truth-in-Telemetry | Mở Admin Dashboard khi chưa có telemetry | Hiển thị trung thực trạng thái "Chưa có dữ liệu" / "Chưa bật thu thập", không tạo số giả | **VERIFIED_LOCAL** | `admin/src/pages/OverviewPage.tsx` & Overview test | P0 |
+
+---
+
+## 3. TIÊU CHÍ NGHIỆM THU PHASE 6: CLOUDFLARE STAGING & MULTI-CHANNEL DEPLOYMENT
+
+| Mã ID | Mô-đun / Hạng mục | Điều kiện kiểm thử / Đầu vào | Hành vi & Kết quả kỳ vọng | Trạng thái thực tế | Bằng chứng kiểm tra / Lệnh xác minh | Ưu tiên |
+| :---: | :--- | :--- | :--- | :---: | :--- | :---: |
+| **TC-DEP-01** | Cloudflare Worker Staging | Triển khai Worker `vna-dak-song-demo` lên Cloudflare | API phản hồi HTTPS hợp lệ tại `https://vna-dak-song-demo.vna-daksong-tuanduong26.workers.dev` | **VERIFIED_LIVE** | Live curl `/api/health` -> HTTP 200 OK | P0 |
+| **TC-DEP-02** | Cloudflare D1 Remote Sync | Áp dụng migration 0001-0004 lên D1 staging | 19 địa điểm, 42 bài viết, bảng admin và visitor đồng bộ đầy đủ | **VERIFIED_LIVE** | D1 ID: `9c1d6303-7245-4baf-a3d4-114b63f8002a` | P0 |
+| **TC-DEP-03** | Zalo Mini App Dev Package | Đóng gói và upload lên Zalo Mini App Center | Khởi chạy thành công trên app Zalo điện thoại; icon hiển thị đầy đủ không lỗi font | **VERIFIED_LIVE** | Version `zdev-1b6f1180` / `zdev-c9cc9090`, App ID: `784313234570084849` | P0 |
+| **TC-DEP-04** | Public Tourist Web App | Triển khai web tĩnh lên Cloudflare Pages | Truy cập mượt mà trên trình duyệt tại `https://vna-dak-song-travel.pages.dev` | **VERIFIED_LIVE** | Cloudflare Pages deployment PASS, dual routing web + zalo | P0 |
+| **TC-DEP-05** | Admin Dashboard Pages | Triển khai admin lên Cloudflare Pages | Truy cập dashboard tại `https://vna-dak-song-admin.pages.dev`, kết nối API worker | **VERIFIED_LIVE** | Cloudflare Pages deployment PASS, fail-closed auth | P0 |
+| **TC-DEP-06** | AI Hybrid Pipeline | Gửi tin nhắn qua endpoint AI `9router` | AI phản hồi tiếng Việt, trích xuất địa điểm chuẩn D1 trong 5s | **VERIFIED_LIVE** | Model `ag/gemini-3.8-flash-low`, HTTP 200 | P0 |
 

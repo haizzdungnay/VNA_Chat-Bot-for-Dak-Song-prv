@@ -2,8 +2,8 @@
 (CODEX EXECUTION RUNBOOK — POST PHASE 2-5 CLOSURE)
 
 **Dự án:** VNA Group — Đắk Song Smart Tourism Zalo Mini App & AI Travel Assistant  
-**Ngày cập nhật:** 09/10/2026  
-**Phiên bản:** 2.0 (Khép lại Phase 2 đến Phase 5, sẵn sàng bàn giao Phase 6)  
+**Ngày cập nhật:** 12/10/2026  
+**Phiên bản:** 2.1 (Hoàn tất Phase 6 Cloudflare Deploy & Admin Dashboard Workspace)  
 
 ---
 
@@ -34,7 +34,7 @@ npm ci
 ```bash
 # Di chuyển vào thư mục worker và áp dụng toàn bộ migration sạch từ 0001 đến 0003
 cd worker
-npx wrangler d1 migrations apply dak-song-db --local
+npx wrangler d1 migrations apply dak-song-db --local # Áp dụng từ 0001 đến 0004
 cd ..
 ```
 
@@ -79,7 +79,7 @@ cd worker && npx wrangler d1 migrations apply dak-song-db --local && cd ..
 # 1. Kiểm tra kiểu tĩnh TypeScript (0 lỗi)
 npm run typecheck
 
-# 2. Chạy toàn bộ 43 bài kiểm thử tự động (Worker + Miniapp)
+# 2. Chạy toàn bộ 70 bài kiểm thử tự động (Worker + Miniapp + Admin)
 npm test
 
 # 3. Biên dịch sản phẩm sản xuất (Vite build + Wrangler dry-run)
@@ -94,6 +94,13 @@ npm run build
   ```bash
   npm run dev:worker
   # API chạy tại http://127.0.0.1:8787
+  ```
+
+
+- **Terminal 3 (Admin Dashboard):**
+  ```bash
+  npm run dev:admin
+  # Admin Dashboard chạy tại http://localhost:3001
   ```
 
 - **Terminal 2 (Frontend Zalo Mini App):**
