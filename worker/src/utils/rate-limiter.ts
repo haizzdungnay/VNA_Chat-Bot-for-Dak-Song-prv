@@ -43,3 +43,4 @@ export class InMemoryRateLimiter {
 }
 
 export const chatRateLimiter = new InMemoryRateLimiter(60_000, 30);
+export const authRateLimiter = new InMemoryRateLimiter(60_000, 20);

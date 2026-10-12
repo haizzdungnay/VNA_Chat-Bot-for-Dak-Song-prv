@@ -19,6 +19,12 @@ export interface Env {
   ADMIN_DEV_MOCK_AUTH?: string | boolean;
   ENVIRONMENT?: string;
   ALLOWED_AI_HOSTS?: string;
+  // Phase 8.1 Identity & Authentication
+  ZALO_APP_ID?: string;
+  ZALO_APP_SECRET?: string;
+  EMAIL_PROVIDER?: string;
+  EMAIL_API_KEY?: string;
+  EMAIL_FROM?: string;
 }
 
 export interface Category {
@@ -162,5 +168,58 @@ export interface AdminTelemetryEventRow {
   created_at: string;
 }
 
+// Phase 8.1 User Identity & Authentication Types
+export interface UserRow {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
 
+export interface AuthIdentityRow {
+  id: string;
+  user_id: string;
+  provider: "zalo" | "email";
+  provider_user_id: string;
+  provider_metadata_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuthSessionRow {
+  id: string;
+  user_id: string;
+  token_hash: string;
+  created_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  last_active_at: string;
+  user_agent: string | null;
+  ip_address: string | null;
+}
+
+export interface AuthChallengeRow {
+  id: string;
+  identifier: string;
+  challenge_type: string;
+  code_hash: string;
+  attempts: number;
+  max_attempts: number;
+  created_at: string;
+  expires_at: string;
+  consumed_at: string | null;
+}
+
+export interface AuthUser {
+  id: string;
+  email: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  status: string;
+  providers: string[];
+  createdAt: string;
+}
 

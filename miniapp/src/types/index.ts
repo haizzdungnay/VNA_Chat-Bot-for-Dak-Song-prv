@@ -76,3 +76,20 @@ export interface PersonalizationProfile {
 
 export type ThemeMode = "light" | "dark" | "system";
 
+export interface AuthUser {
+  id: string;
+  email: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  status: string;
+  providers: string[];
+  createdAt: string;
+}
+
+export interface AuthState {
+  user: AuthUser | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  isZalo: boolean;
+}
+

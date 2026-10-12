@@ -13,6 +13,7 @@ const m1Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0001_initi
 const m2Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0002_seed.sql'), 'utf8');
 const m3Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0003_schema_update.sql'), 'utf8');
 const m4Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0004_admin_extension.sql'), 'utf8');
+const m5Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0005_identity.sql'), 'utf8');
 
 test('Fresh migration path: 0001 -> 0002 -> 0003 applies cleanly and verifies 100% integrity', () => {
   const db = new DatabaseSync(':memory:');
@@ -74,7 +75,32 @@ test('Fresh migration 0004_admin_extension: creates admin schema additively on f
   assert.equal(telemetryCount, 0, 'admin_telemetry_events starts empty');
 });
 
-test('Preexisting database upgrade path: upgrades safely without data loss to 0004', () => {
+test('Fresh migration 0005_identity: creates users, auth_identities, auth_sessions, auth_challenges additively', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(m1Sql);
+  db.exec(m2Sql);
+  db.exec(m3Sql);
+  db.exec(m4Sql);
+
+  assert.doesNotThrow(() => db.exec(m5Sql), '0005_identity.sql should execute cleanly');
+
+  const usersCount = db.prepare('SELECT count(*) as count FROM users').get().count;
+  assert.equal(usersCount, 0, 'users table starts empty');
+
+  const identitiesCount = db.prepare('SELECT count(*) as count FROM auth_identities').get().count;
+  assert.equal(identitiesCount, 0, 'auth_identities table starts empty');
+
+  const sessionsCount = db.prepare('SELECT count(*) as count FROM auth_sessions').get().count;
+  assert.equal(sessionsCount, 0, 'auth_sessions table starts empty');
+
+  const challengesCount = db.prepare('SELECT count(*) as count FROM auth_challenges').get().count;
+  assert.equal(challengesCount, 0, 'auth_challenges table starts empty');
+
+  const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+  assert.equal(fkViolations.length, 0, 'Zero foreign key violations after 0005');
+});
+
+test('Preexisting database upgrade path: upgrades safely without data loss to 0005', () => {
   const db = new DatabaseSync(':memory:');
   db.exec(m1Sql);
   db.exec(m2Sql);
@@ -83,6 +109,7 @@ test('Preexisting database upgrade path: upgrades safely without data loss to 00
 
   assert.doesNotThrow(() => db.exec(m3Sql), '0003 must upgrade preexisting DB cleanly');
   assert.doesNotThrow(() => db.exec(m4Sql), '0004 must upgrade preexisting DB cleanly');
+  assert.doesNotThrow(() => db.exec(m5Sql), '0005 must upgrade preexisting DB cleanly');
 
   const customPlace = db.prepare("SELECT * FROM places WHERE id = 'custom-preexist'").get();
   assert.ok(customPlace, 'Custom pre-existing record must be preserved');
@@ -95,17 +122,19 @@ test('Preexisting database upgrade path: upgrades safely without data loss to 00
   assert.equal(articlesCount, 42);
 });
 
-test('Idempotency: Re-running 0002, 0003, and 0004 statements does not duplicate records or throw', () => {
+test('Idempotency: Re-running 0002, 0003, 0004, and 0005 statements does not duplicate records or throw', () => {
   const db = new DatabaseSync(':memory:');
   db.exec(m1Sql);
   db.exec(m2Sql);
   db.exec(m3Sql);
   db.exec(m4Sql);
+  db.exec(m5Sql);
 
   assert.doesNotThrow(() => db.exec(m2Sql), 'Second run of 0002_seed.sql should not throw');
   const artInsertsOnly = m3Sql.slice(m3Sql.indexOf('INSERT INTO articles'));
   assert.doesNotThrow(() => db.exec(artInsertsOnly), 'Second run of article inserts should not throw');
   assert.doesNotThrow(() => db.exec(m4Sql), 'Second run of 0004_admin_extension.sql should not throw');
+  assert.doesNotThrow(() => db.exec(m5Sql), 'Second run of 0005_identity.sql should not throw');
 
   const placesCount = db.prepare('SELECT count(*) as count FROM places').get().count;
   assert.equal(placesCount, 19, 'Places count must remain 19 on re-run');
@@ -113,4 +142,3 @@ test('Idempotency: Re-running 0002, 0003, and 0004 statements does not duplicate
   const articlesCount = db.prepare('SELECT count(*) as count FROM articles').get().count;
   assert.equal(articlesCount, 42, 'Articles count must remain 42 on re-run');
 });
-

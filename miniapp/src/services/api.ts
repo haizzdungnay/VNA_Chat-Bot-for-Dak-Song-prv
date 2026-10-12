@@ -1,4 +1,6 @@
-import type { Category, Place, Article, ChatRequest, ChatResponse } from "../types";
+import type { Category, Place, Article, ChatRequest, ChatResponse, AuthUser } from "../types";
+import { STORAGE_KEY_AUTH_TOKEN } from "../constants";
+import { safeStorage } from "./storage";
 
 export function getApiBaseUrl(): string {
   // If running in browser on localhost or 127.0.0.1, prioritize local worker
@@ -22,8 +24,14 @@ export function getApiBaseUrl(): string {
 
 async function safeFetch(pathOrUrl: string, init?: RequestInit): Promise<Response> {
   const url = pathOrUrl.startsWith("http") ? pathOrUrl : `${getApiBaseUrl()}${pathOrUrl}`;
+  const token = safeStorage.getItem(STORAGE_KEY_AUTH_TOKEN);
+  const headers = new Headers(init?.headers || {});
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
   try {
-    return await fetch(url, init);
+    return await fetch(url, { ...init, headers });
   } catch (err: unknown) {
     const baseUrl = getApiBaseUrl();
     const isLocalhost = baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1");
@@ -122,5 +130,42 @@ export const api = {
     });
     return handleResponse<{ success: boolean; consented: boolean }>(res);
   },
-};
 
+  // Phase 8.1 User Identity & Authentication APIs
+  async authZalo(accessToken: string): Promise<{ sessionToken: string; user: AuthUser }> {
+    const res = await safeFetch("/api/auth/zalo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accessToken }),
+    });
+    return handleResponse<{ sessionToken: string; user: AuthUser }>(res);
+  },
+
+  async authEmailRequest(email: string): Promise<{ success: boolean; message: string; challengeId: string }> {
+    const res = await safeFetch("/api/auth/email/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    return handleResponse<{ success: boolean; message: string; challengeId: string }>(res);
+  },
+
+  async authEmailVerify(email: string, code: string): Promise<{ sessionToken: string; user: AuthUser }> {
+    const res = await safeFetch("/api/auth/email/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, code }),
+    });
+    return handleResponse<{ sessionToken: string; user: AuthUser }>(res);
+  },
+
+  async getMe(): Promise<{ user: AuthUser }> {
+    const res = await safeFetch("/api/me", { method: "GET" });
+    return handleResponse<{ user: AuthUser }>(res);
+  },
+
+  async logout(): Promise<{ success: boolean }> {
+    const res = await safeFetch("/api/auth/logout", { method: "POST" });
+    return handleResponse<{ success: boolean }>(res);
+  },
+};

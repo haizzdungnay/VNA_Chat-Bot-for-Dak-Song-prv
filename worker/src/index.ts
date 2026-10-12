@@ -20,7 +20,14 @@ import {
   adminLogsRoute,
   adminSystemRoute,
 } from "./routes/admin";
-import { chatRateLimiter } from "./utils/rate-limiter";
+import {
+  zaloAuthRoute,
+  emailRequestRoute,
+  emailVerifyRoute,
+  meRoute,
+  logoutRoute,
+} from "./routes/auth";
+import { chatRateLimiter, authRateLimiter } from "./utils/rate-limiter";
 
 const router = new Router();
 
@@ -33,6 +40,13 @@ router.get("/api/articles", articlesListRoute);
 router.get("/api/articles/:slug", articleDetailRoute);
 router.post("/api/chat", chatRoute);
 router.post("/api/visitors/consent", visitorConsentRoute);
+
+// Phase 8.1 User Identity & Authentication Routes
+router.post("/api/auth/zalo", zaloAuthRoute);
+router.post("/api/auth/email/request", emailRequestRoute);
+router.post("/api/auth/email/verify", emailVerifyRoute);
+router.get("/api/me", meRoute);
+router.post("/api/auth/logout", logoutRoute);
 
 // Admin Dashboard Routes (Protected by Cloudflare Access)
 router.get("/api/admin/overview", adminOverviewRoute);
@@ -144,6 +158,19 @@ export default {
       }
     }
 
+    // Phase 8.1 Security: Rate limiting for auth endpoints
+    if (url.pathname.startsWith("/api/auth/") && method === "POST") {
+      const check = authRateLimiter.check(clientIp);
+      if (!check.allowed) {
+        return errorResponse(
+          "Bạn đã thử xác thực quá nhiều lần. Vui lòng thử lại sau.",
+          429,
+          env,
+          { "Retry-After": String(check.retryAfterSec) }
+        );
+      }
+    }
+
     try {
       return await router.handle(activeRequest, env, ctx);
     } catch {
@@ -152,4 +179,3 @@ export default {
     }
   },
 };
-

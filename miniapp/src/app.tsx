@@ -6,6 +6,7 @@ import "zmp-ui/zaui.css";
 import "./css/app.css";
 
 import { AppProvider } from "./context/AppContext";
+import { AuthProvider } from "./context/AuthContext";
 import { Layout } from "./components/layout";
 import HomePage from "./pages/home";
 import ExplorePage from "./pages/explore";
@@ -57,6 +58,7 @@ const RootApp: React.FC = () => {
     <ErrorBoundary>
       <App>
         <AppProvider>
+          <AuthProvider>
           <ZMPRouter>
             <Layout>
               <AnimationRoutes>
@@ -67,6 +69,7 @@ const RootApp: React.FC = () => {
               </AnimationRoutes>
             </Layout>
           </ZMPRouter>
+        </AuthProvider>
         </AppProvider>
       </App>
     </ErrorBoundary>

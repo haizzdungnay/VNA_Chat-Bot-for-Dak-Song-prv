@@ -3,11 +3,14 @@ import { useLocation, useNavigate } from "zmp-ui";
 import { NAV_ITEMS } from "../constants";
 import { useApp } from "../context/AppContext";
 import { WelcomePersonalizationSheet } from "./welcome-sheet";
+import { AuthModal } from "./auth-modal";
+import { useAuth } from "../context/AuthContext";
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { resolvedTheme, setTheme, openWelcomeSheet, toastMessage } = useApp();
+  const { isAuthenticated, user, openAuthModal } = useAuth();
 
   const currentPath = location.pathname;
   // Place detail is immersive, no bottom nav
@@ -50,6 +53,32 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 </span>
               </button>
 
+              {/* Account / Authentication Button */}
+              <button
+                type="button"
+                className="eco-icon-btn"
+                onClick={openAuthModal}
+                title={isAuthenticated ? "Tài khoản (" + (user?.displayName || "Đã đăng nhập") + ")" : "Đăng nhập tài khoản"}
+                aria-label="Tài khoản"
+                style={{ position: "relative" }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                  {isAuthenticated ? "account_circle" : "login"}
+                </span>
+                {isAuthenticated && (
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: 6,
+                      right: 6,
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      backgroundColor: "var(--color-primary)",
+                    }}
+                  />
+                )}
+              </button>
               {/* Personalization / Profile Button */}
               <button
                 type="button"
@@ -117,6 +146,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
       {/* Welcome & Personalization Bottom Sheet */}
       <WelcomePersonalizationSheet />
+      {/* Account Modal */}
+      <AuthModal />
 
       {/* Global Feedback Toast */}
       {toastMessage && (
