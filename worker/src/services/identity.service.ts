@@ -17,6 +17,25 @@ export async function sha256(input: string): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Server-secret HMAC-SHA256 for 6-digit OTP codes.
+ * Prevents offline rainbow table attacks if database challenge records are leaked.
+ */
+export async function computeOtpHmac(code: string, secretKey: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(secretKey || "vna-daksong-otp-hmac-salt-secret");
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    keyData,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(code));
+  const hashArray = Array.from(new Uint8Array(signature));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export function generateSecureToken(bytes = 32): string {
   const buffer = new Uint8Array(bytes);
   crypto.getRandomValues(buffer);
@@ -56,6 +75,14 @@ export class IdentityService {
   constructor(env: Env) {
     this.env = env;
     this.emailSender = new EmailSenderService(env);
+  }
+
+  private getOtpSecret(): string {
+    return (
+      (this.env as any).SECRET_SALT ||
+      this.env.ADMIN_ENCRYPTION_KEY ||
+      "vna-daksong-otp-hmac-salt-secret"
+    );
   }
 
   async verifyZaloAccessToken(accessToken: string): Promise<ZaloVerifyResult> {
@@ -156,16 +183,28 @@ export class IdentityService {
         .bind(userId, displayName, avatarUrl)
         .run();
 
-      await this.env.DB.prepare(
-        "INSERT INTO auth_identities (id, user_id, provider, provider_user_id, provider_metadata_json) VALUES (?, ?, 'zalo', ?, ?)"
-      )
-        .bind(
-          crypto.randomUUID(),
-          userId,
-          zaloId,
-          JSON.stringify({ name: verification.name, picture: verification.picture })
+      try {
+        await this.env.DB.prepare(
+          "INSERT INTO auth_identities (id, user_id, provider, provider_user_id, provider_metadata_json) VALUES (?, ?, 'zalo', ?, ?)"
         )
-        .run();
+          .bind(
+            crypto.randomUUID(),
+            userId,
+            zaloId,
+            JSON.stringify({ name: verification.name, picture: verification.picture })
+          )
+          .run();
+      } catch {
+        // Concurrency guard: If another concurrent request inserted identity first, resolve that user
+        const recheck = await this.env.DB.prepare(
+          "SELECT user_id FROM auth_identities WHERE provider = 'zalo' AND provider_user_id = ?"
+        )
+          .bind(zaloId)
+          .first<{ user_id: string }>();
+        if (recheck?.user_id) {
+          userId = recheck.user_id;
+        }
+      }
     }
 
     // Issue session token
@@ -228,7 +267,8 @@ export class IdentityService {
     }
 
     const otpCode = generateOtpCode();
-    const codeHash = await sha256(otpCode);
+    // Step 2 Security Hardening: Use HMAC-SHA256 with server-secret instead of plain SHA-256
+    const codeHash = await computeOtpHmac(otpCode, this.getOtpSecret());
     const challengeId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
@@ -300,7 +340,8 @@ export class IdentityService {
       );
     }
 
-    const codeHash = await sha256(cleanCode);
+    // Compare HMAC
+    const codeHash = await computeOtpHmac(cleanCode, this.getOtpSecret());
     if (codeHash !== challenge.code_hash) {
       const nextAttempts = challenge.attempts + 1;
       await this.env.DB.prepare(
@@ -323,12 +364,16 @@ export class IdentityService {
       );
     }
 
-    // Mark challenge consumed (Single-use guard)
-    await this.env.DB.prepare(
-      "UPDATE auth_challenges SET consumed_at = datetime('now') WHERE id = ?"
+    // Step 2 Security Hardening: Atomic conditional update to prevent concurrent replay race conditions
+    const updateRes = await this.env.DB.prepare(
+      "UPDATE auth_challenges SET consumed_at = datetime('now') WHERE id = ? AND consumed_at IS NULL"
     )
       .bind(challenge.id)
       .run();
+
+    if (updateRes && (updateRes as any).meta && (updateRes as any).meta.changes === 0) {
+      throw new ValidationError("Mã xác thực đã được sử dụng hoặc đang được xử lý.", 400);
+    }
 
     // Check existing email identity
     const existingIdentity = await this.env.DB.prepare(
@@ -351,11 +396,22 @@ export class IdentityService {
         .bind(userId, normalizedEmail, displayName)
         .run();
 
-      await this.env.DB.prepare(
-        "INSERT INTO auth_identities (id, user_id, provider, provider_user_id) VALUES (?, ?, 'email', ?)"
-      )
-        .bind(crypto.randomUUID(), userId, normalizedEmail)
-        .run();
+      try {
+        await this.env.DB.prepare(
+          "INSERT INTO auth_identities (id, user_id, provider, provider_user_id) VALUES (?, ?, 'email', ?)"
+        )
+          .bind(crypto.randomUUID(), userId, normalizedEmail)
+          .run();
+      } catch {
+        const recheck = await this.env.DB.prepare(
+          "SELECT user_id FROM auth_identities WHERE provider = 'email' AND provider_user_id = ?"
+        )
+          .bind(normalizedEmail)
+          .first<{ user_id: string }>();
+        if (recheck?.user_id) {
+          userId = recheck.user_id;
+        }
+      }
     }
 
     // Issue session token

@@ -27,7 +27,17 @@ import {
   meRoute,
   logoutRoute,
 } from "./routes/auth";
-import { chatRateLimiter, authRateLimiter } from "./utils/rate-limiter";
+import {
+  previewItineraryRoute,
+  saveItineraryRoute,
+  listItinerariesRoute,
+  getItineraryRoute,
+  updateItineraryRoute,
+  deleteItineraryRoute,
+} from "./routes/itineraries";
+import { chatRateLimiter, authRateLimiter, InMemoryRateLimiter } from "./utils/rate-limiter";
+
+const previewRateLimiter = new InMemoryRateLimiter(60_000, 20);
 
 const router = new Router();
 
@@ -48,6 +58,14 @@ router.post("/api/auth/email/verify", emailVerifyRoute);
 router.get("/api/me", meRoute);
 router.post("/api/auth/logout", logoutRoute);
 
+// Phase 8.2 AI Travel Planner & Itineraries Routes
+router.post("/api/itineraries/preview", previewItineraryRoute);
+router.post("/api/itineraries", saveItineraryRoute);
+router.get("/api/itineraries", listItinerariesRoute);
+router.get("/api/itineraries/:id", getItineraryRoute);
+router.put("/api/itineraries/:id", updateItineraryRoute);
+router.delete("/api/itineraries/:id", deleteItineraryRoute);
+
 // Admin Dashboard Routes (Protected by Cloudflare Access)
 router.get("/api/admin/overview", adminOverviewRoute);
 router.get("/api/admin/ai-profiles", adminProfilesListRoute);
@@ -61,7 +79,8 @@ router.get("/api/admin/visitors", adminVisitorsRoute);
 router.get("/api/admin/logs", adminLogsRoute);
 router.get("/api/admin/system", adminSystemRoute);
 
-const MAX_POST_BYTES = 10 * 1024; // 10 KB limit
+const MAX_DEFAULT_BYTES = 10 * 1024; // 10 KB limit for general endpoints
+const MAX_ITINERARY_BYTES = 30 * 1024; // 30 KB limit for multi-day itineraries
 
 /**
  * Bounded byte reader to protect Worker isolate memory against oversized streams
@@ -123,19 +142,23 @@ export default {
 
     let activeRequest = request;
 
-    // Phase 4 Security: Bounded body size check for POST & PUT
+    // Security: Bounded body size check for POST & PUT (10KB default, 30KB for itineraries)
     if (method === "POST" || method === "PUT") {
+      const isItin = url.pathname.startsWith("/api/itineraries");
+      const maxLimit = isItin ? MAX_ITINERARY_BYTES : MAX_DEFAULT_BYTES;
+      const limitLabel = isItin ? "30KB" : "10KB";
+
       const contentLength = request.headers.get("content-length");
       if (contentLength) {
         const parsedLen = parseInt(contentLength, 10);
-        if (!isNaN(parsedLen) && parsedLen > MAX_POST_BYTES) {
-          return errorResponse("Dung lượng yêu cầu vượt quá giới hạn cho phép (10KB).", 413, env);
+        if (!isNaN(parsedLen) && parsedLen > maxLimit) {
+          return errorResponse(`Dung lượng yêu cầu vượt quá giới hạn cho phép (${limitLabel}).`, 413, env);
         }
       }
 
-      const { body, tooLarge } = await readBoundedBody(request, MAX_POST_BYTES);
+      const { body, tooLarge } = await readBoundedBody(request, maxLimit);
       if (tooLarge) {
-        return errorResponse("Dung lượng yêu cầu vượt quá giới hạn cho phép (10KB).", 413, env);
+        return errorResponse(`Dung lượng yêu cầu vượt quá giới hạn cho phép (${limitLabel}).`, 413, env);
       }
 
       activeRequest = new Request(request.url, {
@@ -164,6 +187,19 @@ export default {
       if (!check.allowed) {
         return errorResponse(
           "Bạn đã thử xác thực quá nhiều lần. Vui lòng thử lại sau.",
+          429,
+          env,
+          { "Retry-After": String(check.retryAfterSec) }
+        );
+      }
+    }
+
+    // Phase 8.2 Security: Rate limiting for preview endpoint
+    if (url.pathname === "/api/itineraries/preview" && method === "POST") {
+      const check = previewRateLimiter.check(clientIp);
+      if (!check.allowed) {
+        return errorResponse(
+          "Bạn đã tạo quá nhiều lịch trình thử nghiệm. Vui lòng thử lại sau 1 phút.",
           429,
           env,
           { "Retry-After": String(check.retryAfterSec) }

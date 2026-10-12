@@ -223,3 +223,68 @@ export interface AuthUser {
   createdAt: string;
 }
 
+// Phase 8.2 AI Travel Planner Types
+export type TravelPace = "relaxed" | "moderate" | "active";
+export type TransportationType = "car" | "motorbike" | "shuttle";
+export type BudgetPreference = "economy" | "moderate" | "luxury";
+export type ItineraryItemType = "place" | "meal" | "rest" | "transport";
+
+export interface PlannerRequest {
+  selectedPlaceIds?: string[];
+  travelersCount: number;
+  childrenCount: number;
+  startDate: string;
+  departureTime?: string;
+  durationDays: number;
+  interests?: string[];
+  transportation?: TransportationType;
+  pace?: TravelPace;
+  budgetPreference?: BudgetPreference;
+}
+
+export interface ItineraryItemOutput {
+  id?: string;
+  placeId?: string | null;
+  itemType: ItineraryItemType;
+  title: string;
+  plannedTime?: string;
+  durationMinutes: number;
+  notes?: string;
+  orderIndex: number;
+  isUserSelected: boolean;
+  estimatedTravelMinutes?: number;
+  place?: Place;
+}
+
+export interface ItineraryDayOutput {
+  id?: string;
+  dayNumber: number;
+  date?: string;
+  title?: string;
+  notes?: string;
+  items: ItineraryItemOutput[];
+}
+
+export interface ItineraryOutput {
+  id?: string;
+  userId?: string;
+  title: string;
+  startDate: string;
+  departureTime?: string;
+  durationDays: number;
+  travelersCount: number;
+  childrenCount: number;
+  pace: TravelPace;
+  transportation: TransportationType;
+  budgetPreference: BudgetPreference;
+  interests: string[];
+  summary?: string;
+  status: "draft" | "saved" | "archived";
+  version: number;
+  days: ItineraryDayOutput[];
+  warnings?: string[];
+  isFallback?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+

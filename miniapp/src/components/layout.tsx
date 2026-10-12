@@ -40,6 +40,18 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </div>
 
             <div className="eco-header-actions">
+              {/* AI Travel Planner Button */}
+              <button
+                type="button"
+                className="eco-icon-btn"
+                onClick={() => navigate("/planner")}
+                title="Lập lịch trình AI"
+                aria-label="Lịch trình AI"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                  calendar_month
+                </span>
+              </button>
               {/* Theme Toggle Button */}
               <button
                 type="button"

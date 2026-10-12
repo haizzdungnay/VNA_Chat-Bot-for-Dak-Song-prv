@@ -373,6 +373,31 @@ const PlaceDetailPage: React.FC = () => {
               <span>✨ Hỏi AI về địa điểm này</span>
             </button>
 
+            {/* Lên lịch trình với điểm này */}
+            <button
+              type="button"
+              className="eco-btn-secondary"
+              onClick={() => navigate(`/planner?placeId=${encodeURIComponent(place.id)}`)}
+              style={{
+                width: "100%",
+                padding: "12px",
+                borderRadius: 12,
+                fontSize: 14,
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                marginTop: 8,
+                cursor: "pointer",
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: "var(--color-primary)" }}>
+                event_available
+              </span>
+              <span>Lên lịch trình với điểm này</span>
+            </button>
+
             {/* 6. Description Section */}
             <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 4 }}>
               <h3

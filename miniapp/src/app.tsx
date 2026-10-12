@@ -12,6 +12,7 @@ import HomePage from "./pages/home";
 import ExplorePage from "./pages/explore";
 import PlaceDetailPage from "./pages/place-detail";
 import AIChatPage from "./pages/chat";
+import PlannerPage from "./pages/planner";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -66,6 +67,7 @@ const RootApp: React.FC = () => {
                 <Route path="/explore" element={<ExplorePage />} />
                 <Route path="/place/:id" element={<PlaceDetailPage />} />
                 <Route path="/chat" element={<AIChatPage />} />
+                <Route path="/planner" element={<PlannerPage />} />
               </AnimationRoutes>
             </Layout>
           </ZMPRouter>

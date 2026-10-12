@@ -1,4 +1,4 @@
-import type { Category, Place, Article, ChatRequest, ChatResponse, AuthUser } from "../types";
+import type { Category, Place, Article, ChatRequest, ChatResponse, AuthUser, PlannerRequest, ItineraryOutput } from "../types";
 import { STORAGE_KEY_AUTH_TOKEN } from "../constants";
 import { safeStorage } from "./storage";
 
@@ -166,6 +166,48 @@ export const api = {
 
   async logout(): Promise<{ success: boolean }> {
     const res = await safeFetch("/api/auth/logout", { method: "POST" });
+    return handleResponse<{ success: boolean }>(res);
+  },
+  // Phase 8.2 AI Travel Planner APIs
+  async previewItinerary(request: PlannerRequest): Promise<{ itinerary: ItineraryOutput }> {
+    const res = await safeFetch("/api/itineraries/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    return handleResponse<{ itinerary: ItineraryOutput }>(res);
+  },
+
+  async saveItinerary(itinerary: ItineraryOutput): Promise<{ itinerary: ItineraryOutput }> {
+    const res = await safeFetch("/api/itineraries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(itinerary),
+    });
+    return handleResponse<{ itinerary: ItineraryOutput }>(res);
+  },
+
+  async listItineraries(): Promise<ItineraryOutput[]> {
+    const res = await safeFetch("/api/itineraries", { method: "GET" });
+    return handleResponse<ItineraryOutput[]>(res);
+  },
+
+  async getItinerary(id: string): Promise<{ itinerary: ItineraryOutput }> {
+    const res = await safeFetch(`/api/itineraries/${encodeURIComponent(id)}`, { method: "GET" });
+    return handleResponse<{ itinerary: ItineraryOutput }>(res);
+  },
+
+  async updateItinerary(id: string, itinerary: ItineraryOutput): Promise<{ itinerary: ItineraryOutput }> {
+    const res = await safeFetch(`/api/itineraries/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(itinerary),
+    });
+    return handleResponse<{ itinerary: ItineraryOutput }>(res);
+  },
+
+  async deleteItinerary(id: string): Promise<{ success: boolean }> {
+    const res = await safeFetch(`/api/itineraries/${encodeURIComponent(id)}`, { method: "DELETE" });
     return handleResponse<{ success: boolean }>(res);
   },
 };

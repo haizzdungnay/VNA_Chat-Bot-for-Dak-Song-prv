@@ -5,7 +5,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
-import { IdentityService, sha256 } from '../src/services/identity.service.ts';
+import { IdentityService, sha256, computeOtpHmac } from '../src/services/identity.service.ts';
 import { clearSentEmailsForTest, getSentEmailsForTest } from '../src/services/email-sender.service.ts';
 import worker from '../src/index.ts';
 
@@ -161,7 +161,7 @@ test('IdentityService: Email OTP flow handles request, challenge hashing, and si
   const challengeInDb = env.rawDb.prepare('SELECT * FROM auth_challenges WHERE identifier = ?').get(email);
   assert.ok(challengeInDb, 'Challenge must exist');
   assert.notEqual(challengeInDb.code_hash, otpCode, 'Must NOT store plaintext OTP in database');
-  assert.equal(challengeInDb.code_hash, await sha256(otpCode), 'Stored hash must match SHA-256 of OTP');
+  assert.equal(challengeInDb.code_hash, await computeOtpHmac(otpCode, 'vna-daksong-otp-hmac-salt-secret'), 'Stored hash must match HMAC-SHA256 of OTP');
 
   // Verify with correct OTP
   const verifyRes = await identityService.verifyEmailOtp(email, otpCode);
