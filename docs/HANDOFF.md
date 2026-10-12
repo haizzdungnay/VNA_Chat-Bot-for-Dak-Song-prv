@@ -2,7 +2,7 @@
 
 ## 1. Project Overview & Repositories
 - Repo: `haizzdungnay/VNA_Chat-Bot-for-Dak-Song-prv`
-- Active branches: `main` (HEAD: `446f356`), `feature/admin-dashboard` (HEAD: `f2418e1`). Tree clean, remote in sync.
+- Active branches: `main`, `feature/admin-dashboard`. Released Tag: `v1.0.0-mvp`. Remote in sync.
 - Tech stack: Monorepo npm workspaces (`miniapp`, `worker`, `admin`), Node v24, TypeScript.
 
 ## 2. Infrastructure & Production Endpoints
@@ -29,13 +29,11 @@
 - Fallback: Cloudflare AI Gateway architecture documented in `docs/PHASE6_ZALO_DEVELOPMENT_DEPLOY_REPORT.md` for enterprise production (avoids Google Hong Kong IP geo-blocks).
 
 ## 4. Test Suite & Validation
-- Run all tests: `npm test; npm run test:admin`
+- Run all tests: `npm test` (chạy tự động cả 3 workspace: worker, miniapp, admin)
 - Status: 70/70 tests PASS (53 worker, 14 miniapp, 3 admin). Zero TypeScript errors.
 
-## 5. Next Steps / Phase 7 Backlog
-- Phase 0 - 6: 100% DONE.
-- Phase 7 remaining:
-  1. Update acceptance matrix (`docs/ACCEPTANCE_MATRIX.md`).
-  2. Tag release: `git tag v1.0.0-mvp && git push origin v1.0.0-mvp`.
-  3. Production review: Submit Zalo Mini App review on `mini.zalo.me` when ready for public rollout.
-
+## 5. Phase 7 Completion & Production Rollout
+- Phase 0 - 7: 100% DONE.
+- Released MVP Tag: `v1.0.0-mvp`.
+- Acceptance Matrix v3.0 & Runbook v2.1: Đồng bộ 70/70 test pass, 0 lỗi TypeScript.
+- Bước tiếp theo khi sẵn sàng thương mại hóa: Nộp hồ sơ xét duyệt ứng dụng chính thức tại `mini.zalo.me`.
