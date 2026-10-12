@@ -491,6 +491,7 @@ export interface MockPaymentRefundRow {
   reason: string | null;
   actor: string;
   idempotency_key: string | null;
+  timestamp_provenance?: string;
   created_at: string;
 }
 

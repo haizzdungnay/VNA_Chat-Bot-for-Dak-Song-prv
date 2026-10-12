@@ -70,23 +70,57 @@ export class BookingService {
     quote: BookingQuoteRow;
     items: BookingQuoteItemRow[];
   }> {
-    const adults = Math.floor(Number(input.adultsCount));
-    const children = Math.floor(Number(input.childrenCount));
+    if (typeof input.adultsCount === "boolean" || typeof input.childrenCount === "boolean") {
+      const err = new Error("Số lượng người lớn tối thiểu là 1 và phải là số nguyên hợp lệ.");
+      (err as any).status = 400;
+      throw err;
+    }
 
+    if (input.adultsCount === undefined || input.adultsCount === null) {
+      const err = new Error("Số lượng người lớn là bắt buộc.");
+      (err as any).status = 400;
+      throw err;
+    }
+
+    const adults = typeof input.adultsCount === "number" ? input.adultsCount : Number(input.adultsCount);
     if (!Number.isSafeInteger(adults) || adults < 1) {
-      throw new Error("Số lượng người lớn tối thiểu là 1.");
+      const err = new Error("Số lượng người lớn tối thiểu là 1 và phải là số nguyên hợp lệ.");
+      (err as any).status = 400;
+      throw err;
     }
-    if (!Number.isSafeInteger(children) || children < 0) {
-      throw new Error("Số lượng trẻ em không được âm.");
+
+    let children = 0;
+    if (input.childrenCount !== undefined && input.childrenCount !== null) {
+      const ch = typeof input.childrenCount === "number" ? input.childrenCount : Number(input.childrenCount);
+      if (!Number.isSafeInteger(ch) || ch < 0) {
+        const err = new Error("Số lượng trẻ em phải là số nguyên không âm.");
+        (err as any).status = 400;
+        throw err;
+      }
+      children = ch;
     }
+
     const totalTravelers = adults + children;
     if (totalTravelers > 50) {
-      throw new Error("Đoàn vượt quá giới hạn tối đa 50 người.");
+      const err = new Error("Đoàn vượt quá giới hạn tối đa 50 người.");
+      (err as any).status = 400;
+      throw err;
     }
 
-    let durationDays = Math.floor(Number(input.durationDays) || 1);
-    if (!Number.isSafeInteger(durationDays) || durationDays < 1) {
-      durationDays = 1;
+    let durationDays = 1;
+    if (input.durationDays !== undefined && input.durationDays !== null) {
+      if (typeof input.durationDays === "boolean") {
+        const err = new Error("Số ngày du lịch không hợp lệ.");
+        (err as any).status = 400;
+        throw err;
+      }
+      const dur = typeof input.durationDays === "number" ? input.durationDays : Number(input.durationDays);
+      if (!Number.isSafeInteger(dur) || dur < 1) {
+        const err = new Error("Số ngày du lịch phải là số nguyên dương hợp lệ.");
+        (err as any).status = 400;
+        throw err;
+      }
+      durationDays = dur;
     }
 
     let itinVersion: number | null = null;
@@ -743,8 +777,19 @@ export class BookingService {
     transactionReference: string;
     message: string;
   }> {
-    // 0. Feature flag kiểm tra
-    if (this.env.MOCK_PAYMENT_ENABLED === "false" || this.env.MOCK_PAYMENT_ENABLED === false) {
+    // 0. Feature flag kiểm tra (Deny by default policy)
+    // Mock payment chỉ được cho phép khi cờ được bật rõ ràng VÀ nằm trong môi trường được cấp phép (development, test, staging).
+    // Tuyệt đối không cho phép trên môi trường production ngay cả khi cờ bị bật nhầm.
+    const isFlagEnabled =
+      this.env.MOCK_PAYMENT_ENABLED === "true" || this.env.MOCK_PAYMENT_ENABLED === true;
+
+    const currentEnv = (this.env.ENVIRONMENT || "").trim().toLowerCase();
+    const isAllowedEnv =
+      currentEnv === "development" || currentEnv === "test" || currentEnv === "staging";
+
+    const isProduction = currentEnv === "production";
+
+    if (!isFlagEnabled || !isAllowedEnv || isProduction) {
       const err = new Error("Thanh toán mô phỏng đang bị vô hiệu hóa trên hệ thống.");
       (err as any).status = 503;
       throw err;

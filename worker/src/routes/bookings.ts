@@ -79,9 +79,9 @@ export const createQuoteRoute: RouteHandler = async (req, _params, env) => {
       tourId: body.tourId,
       itineraryId: body.itineraryId,
       selectedServiceIds: body.selectedServiceIds,
-      adultsCount: Number(body.adultsCount) || 1,
-      childrenCount: Number(body.childrenCount) || 0,
-      durationDays: body.durationDays ? Number(body.durationDays) : undefined,
+      adultsCount: body.adultsCount,
+      childrenCount: body.childrenCount,
+      durationDays: body.durationDays,
     });
 
     return jsonResponse(res, 201, env);
@@ -192,7 +192,16 @@ export const mockPaymentRoute: RouteHandler = async (req, params, env) => {
     return errorResponse("Payload JSON không hợp lệ.", 400, env);
   }
 
-  const simulateStatus = body.simulateStatus === "failed" ? "failed" : "success";
+  const rawStatus = body?.simulateStatus;
+  if (rawStatus !== "success" && rawStatus !== "failed") {
+    return errorResponse(
+      "simulateStatus không hợp lệ (chỉ chấp nhận 'success' hoặc 'failed').",
+      400,
+      env
+    );
+  }
+
+  const simulateStatus = rawStatus;
   const paymentMethod = body.paymentMethod || "mock_bank_transfer";
 
   try {

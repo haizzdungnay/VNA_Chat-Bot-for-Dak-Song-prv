@@ -24,6 +24,7 @@ function createBusinessTestEnv(overrides = {}) {
   const m7 = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0007_optimistic_lock_guard.sql'), 'utf8');
   const m8 = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0008_business_booking.sql'), 'utf8');
   const m9 = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0009_booking_transaction_hardening.sql'), 'utf8');
+  const m10 = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0010_historical_refund_reconciliation.sql'), 'utf8');
 
   db.exec(m1);
   db.exec(m2);
@@ -34,6 +35,7 @@ function createBusinessTestEnv(overrides = {}) {
   db.exec(m7);
   db.exec(m8);
   db.exec(m9);
+  db.exec(m10);
 
   // Insert two test users for isolation testing
   db.exec("INSERT INTO users (id, email, display_name, status) VALUES ('user-1', 'alice@example.com', 'Alice', 'active');");
@@ -103,6 +105,7 @@ function createBusinessTestEnv(overrides = {}) {
     rawDb: db,
     ENVIRONMENT: 'test',
     ADMIN_DEV_MOCK_AUTH: 'true',
+    MOCK_PAYMENT_ENABLED: 'true',
     ...overrides,
   };
 }
