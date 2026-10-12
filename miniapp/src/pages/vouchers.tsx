@@ -1,0 +1,330 @@
+import React, { useState } from "react";
+import { useNavigate } from "zmp-ui";
+import { useApp } from "../context/AppContext";
+
+interface VoucherItem {
+  id: string;
+  code: string;
+  title: string;
+  discount: string;
+  category: "all" | "food" | "stay" | "tour";
+  categoryLabel: string;
+  description: string;
+  condition: string;
+  expiry: string;
+  icon: string;
+}
+
+const DAK_SONG_VOUCHERS: VoucherItem[] = [
+  {
+    id: "v1",
+    code: "DAKSONG20",
+    title: "Thưởng thức Cà phê Đắk Song",
+    discount: "Giảm 20%",
+    category: "food",
+    categoryLabel: "Ẩm thực",
+    description: "Áp dụng tại các quán cà phê bản địa và trạm dừng chân liên kết trên địa bàn huyện.",
+    condition: "Đơn từ 100.000đ",
+    expiry: "31/12/2026",
+    icon: "coffee",
+  },
+  {
+    id: "v2",
+    code: "NAMNUNG15",
+    title: "Tour trekking Rừng nguyên sinh Nâm Nung",
+    discount: "Giảm 15%",
+    category: "tour",
+    categoryLabel: "Tour & Vé",
+    description: "Khám phá thảm thực vật đặc hữu và rừng đại ngàn Tây Nguyên với hướng dẫn viên địa phương.",
+    condition: "Áp dụng nhóm từ 2 khách",
+    expiry: "31/12/2026",
+    icon: "forest",
+  },
+  {
+    id: "v3",
+    code: "VR360FREE",
+    title: "Trải nghiệm thực tế ảo VR360 toàn cảnh",
+    discount: "Miễn phí",
+    category: "tour",
+    categoryLabel: "Tour & Vé",
+    description: "Vé trải nghiệm tour 3D thực tế ảo tại các điểm chạm thông tin du lịch Đắk Song.",
+    condition: "Áp dụng mọi du khách",
+    expiry: "31/12/2026",
+    icon: "view_in_ar",
+  },
+  {
+    id: "v4",
+    code: "STAY100K",
+    title: "Homestay sinh thái cộng đồng M'nông",
+    discount: "Giảm 100K",
+    category: "stay",
+    categoryLabel: "Lưu trú",
+    description: "Ưu đãi đặt phòng tại các homestay văn hóa bản địa, hòa mình vào nếp sống đại ngàn.",
+    condition: "Đơn từ 500.000đ",
+    expiry: "31/12/2026",
+    icon: "cottage",
+  },
+  {
+    id: "v5",
+    code: "COMLAM10",
+    title: "Ẩm thực cơm lam & Gà nướng Đắk Song",
+    discount: "Giảm 10%",
+    category: "food",
+    categoryLabel: "Ẩm thực",
+    description: "Thưởng thức trọn vẹn hương vị đặc sản cao nguyên tại các nhà hàng ẩm thực truyền thống.",
+    condition: "Đơn từ 200.000đ",
+    expiry: "31/12/2026",
+    icon: "restaurant",
+  },
+];
+
+export const VouchersPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { showToast } = useApp();
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
+
+  const filtered = selectedCategory === "all"
+    ? DAK_SONG_VOUCHERS
+    : DAK_SONG_VOUCHERS.filter((v) => v.category === selectedCategory);
+
+  const handleCopyCode = (code: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(code).catch(() => {});
+    }
+    showToast(`Đã sao chép mã ưu đãi ${code}!`);
+  };
+
+  return (
+    <div style={{ padding: "16px 16px 80px 16px", maxWidth: 640, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div>
+          <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "var(--color-text-primary)" }}>
+            Ưu đãi du lịch Đắk Song
+          </h1>
+          <p style={{ fontSize: 12, margin: "2px 0 0 0", color: "var(--color-text-secondary)" }}>
+            Mã giảm giá, voucher và quà tặng độc quyền
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => navigate("/planner")}
+          style={{
+            background: "none",
+            border: "1px solid var(--color-primary)",
+            borderRadius: 8,
+            color: "var(--color-primary)",
+            fontSize: 12,
+            fontWeight: 600,
+            padding: "6px 10px",
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            cursor: "pointer",
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+            calendar_month
+          </span>
+          Lên lịch trình
+        </button>
+      </div>
+
+      {/* Lucky Wheel Banner Preview */}
+      <div
+        style={{
+          backgroundColor: "var(--color-ochre-bg)",
+          border: "1px solid var(--color-ochre-border)",
+          borderRadius: 14,
+          padding: "14px 16px",
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        <div
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 12,
+            backgroundColor: "var(--color-ochre)",
+            color: "#ffffff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 24 }}>
+            casino
+          </span>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--color-ochre)" }}>
+            Vòng quay may mắn Đắk Song
+          </div>
+          <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginTop: 2 }}>
+            Quay số trúng quà tặng du lịch & voucher hấp dẫn (sắp kích hoạt)
+          </div>
+        </div>
+      </div>
+
+      {/* Category Filter Chips */}
+      <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6, marginBottom: 14 }}>
+        {[
+          { key: "all", label: "Tất cả" },
+          { key: "food", label: "🍜 Ẩm thực" },
+          { key: "stay", label: "🏡 Lưu trú" },
+          { key: "tour", label: "🌲 Tour & Vé" },
+        ].map((cat) => {
+          const active = selectedCategory === cat.key;
+          return (
+            <button
+              key={cat.key}
+              type="button"
+              onClick={() => setSelectedCategory(cat.key)}
+              style={{
+                padding: "7px 14px",
+                borderRadius: 20,
+                border: "1px solid " + (active ? "var(--color-primary)" : "var(--color-border)"),
+                backgroundColor: active ? "var(--color-primary)" : "var(--color-surface)",
+                color: active ? "#ffffff" : "var(--color-text-primary)",
+                fontSize: 12,
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+              }}
+            >
+              {cat.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Voucher Cards List */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {filtered.map((item) => (
+          <div
+            key={item.id}
+            style={{
+              backgroundColor: "var(--color-surface)",
+              border: "1px solid var(--color-border)",
+              borderRadius: 12,
+              padding: 14,
+              boxShadow: "var(--shadow-sm)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              position: "relative",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 10,
+                  backgroundColor: "var(--color-primary-light)",
+                  color: "var(--color-primary)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 22 }}>
+                  {item.icon}
+                </span>
+              </div>
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: "var(--color-primary)",
+                      backgroundColor: "var(--color-primary-light)",
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                    }}
+                  >
+                    {item.discount}
+                  </span>
+                  <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>
+                    {item.condition}
+                  </span>
+                </div>
+
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--color-text-primary)", lineHeight: 1.3 }}>
+                  {item.title}
+                </div>
+
+                <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: "4px 0 0 0", lineHeight: 1.4 }}>
+                  {item.description}
+                </p>
+              </div>
+            </div>
+
+            {/* Voucher Footer: Code & Copy */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingTop: 10,
+                borderTop: "1px dashed var(--color-border)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>Mã:</span>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    letterSpacing: "1px",
+                    color: "var(--color-text-primary)",
+                    backgroundColor: "var(--color-surface-container)",
+                    padding: "2px 8px",
+                    borderRadius: 4,
+                  }}
+                >
+                  {item.code}
+                </span>
+                <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>• HSD {item.expiry}</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleCopyCode(item.code)}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  border: "none",
+                  backgroundColor: "var(--color-primary)",
+                  color: "#ffffff",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                  content_copy
+                </span>
+                Lưu mã
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default VouchersPage;

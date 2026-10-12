@@ -48,6 +48,8 @@ export const AGE_GROUP_OPTIONS: { value: AgeGroup; label: string }[] = [
 export const NAV_ITEMS = [
   { key: "/", label: "Trang chủ", icon: "home", linkTo: "/" },
   { key: "/explore", label: "Khám phá", icon: "explore", linkTo: "/explore" },
+  { key: "/planner", label: "Lên lịch", icon: "calendar_month", linkTo: "/planner" },
+  { key: "/vouchers", label: "Ưu đãi", icon: "confirmation_number", linkTo: "/vouchers" },
   { key: "/chat", label: "Trợ lý AI", icon: "auto_awesome", linkTo: "/chat" },
 ];
 

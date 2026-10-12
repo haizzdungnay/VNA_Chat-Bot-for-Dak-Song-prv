@@ -58,6 +58,9 @@
   --chat-assistant-text: #1C2520;
   --input-bg: #FFFFFF;
   --composer-bg: #FFFFFF;
+  --color-bg-card: var(--color-surface);
+  --color-bg-secondary: var(--color-surface-container);
+  --color-bg-input: var(--input-bg);
 
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -114,6 +117,9 @@
   --chat-assistant-text: #F0F4F1;
   --input-bg: #1E2B24;
   --composer-bg: #18221C;
+  --color-bg-card: var(--color-surface);
+  --color-bg-secondary: var(--color-surface-container);
+  --color-bg-input: var(--input-bg);
 }
 
 /* ==========================================================================
@@ -298,8 +304,8 @@ body {
   height: 60px;
   display: flex;
   align-items: center;
-  justify-content: space-around;
-  padding: 0 12px;
+  justify-content: space-between;
+  padding: 0 6px;
 }
 
 .eco-nav-item {
@@ -308,12 +314,15 @@ body {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  width: 72px;
-  height: 48px;
+  flex: 1;
+  max-width: 68px;
+  min-width: 0;
+  height: 50px;
   border-radius: var(--radius-md);
   text-decoration: none;
   color: var(--color-text-secondary);
-  font-size: 11px;
+  font-size: 10px;
+  padding: 0 2px;
   font-weight: 500;
   transition: all 0.2s ease;
   background: transparent;

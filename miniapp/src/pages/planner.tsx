@@ -287,8 +287,8 @@ export const PlannerPage: React.FC = () => {
                   style={{
                     padding: "10px 0",
                     borderRadius: 8,
-                    border: "1px solid " + (durationDays === d ? "var(--color-primary)" : "var(--color-border, #d1d5db)"),
-                    backgroundColor: durationDays === d ? "var(--color-primary)" : "var(--color-bg-card, #ffffff)",
+                    border: "1px solid " + (durationDays === d ? "var(--color-primary)" : "var(--color-border)"),
+                    backgroundColor: durationDays === d ? "var(--color-primary)" : "var(--color-surface)",
                     color: durationDays === d ? "#ffffff" : "var(--color-text-primary)",
                     fontWeight: 700,
                     fontSize: 13,
@@ -315,8 +315,8 @@ export const PlannerPage: React.FC = () => {
                   width: "100%",
                   padding: "9px 10px",
                   borderRadius: 8,
-                  border: "1px solid var(--color-border, #d1d5db)",
-                  backgroundColor: "var(--color-bg-input, #ffffff)",
+                  border: "1px solid var(--color-border)",
+                  backgroundColor: "var(--input-bg)",
                   color: "var(--color-text-primary)",
                   fontSize: 13,
                   boxSizing: "border-box",
@@ -335,8 +335,8 @@ export const PlannerPage: React.FC = () => {
                   width: "100%",
                   padding: "9px 10px",
                   borderRadius: 8,
-                  border: "1px solid var(--color-border, #d1d5db)",
-                  backgroundColor: "var(--color-bg-input, #ffffff)",
+                  border: "1px solid var(--color-border)",
+                  backgroundColor: "var(--input-bg)",
                   color: "var(--color-text-primary)",
                   fontSize: 13,
                   boxSizing: "border-box",
@@ -349,10 +349,10 @@ export const PlannerPage: React.FC = () => {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 18 }}>
             <div
               style={{
-                backgroundColor: "var(--color-bg-card, #ffffff)",
+                backgroundColor: "var(--color-surface)",
                 padding: 12,
                 borderRadius: 10,
-                border: "1px solid var(--color-border, #e5e7eb)",
+                border: "1px solid var(--color-border)",
               }}
             >
               <div style={{ fontSize: 13, fontWeight: 700, color: "var(--color-text-primary)" }}>Tổng số người</div>
@@ -360,7 +360,7 @@ export const PlannerPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setTravelersCount((c) => Math.max(1, c - 1))}
-                  style={{ width: 28, height: 28, borderRadius: 14, border: "1px solid #ccc", background: "none", cursor: "pointer" }}
+                  style={{ width: 28, height: 28, borderRadius: 14, border: "1px solid var(--color-border)", backgroundColor: "var(--color-surface-container)", color: "var(--color-text-primary)", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                 >
                   -
                 </button>
@@ -368,7 +368,7 @@ export const PlannerPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setTravelersCount((c) => Math.min(20, c + 1))}
-                  style={{ width: 28, height: 28, borderRadius: 14, border: "1px solid #ccc", background: "none", cursor: "pointer" }}
+                  style={{ width: 28, height: 28, borderRadius: 14, border: "1px solid var(--color-border)", backgroundColor: "var(--color-surface-container)", color: "var(--color-text-primary)", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                 >
                   +
                 </button>
@@ -377,10 +377,10 @@ export const PlannerPage: React.FC = () => {
 
             <div
               style={{
-                backgroundColor: "var(--color-bg-card, #ffffff)",
+                backgroundColor: "var(--color-surface)",
                 padding: 12,
                 borderRadius: 10,
-                border: "1px solid var(--color-border, #e5e7eb)",
+                border: "1px solid var(--color-border)",
               }}
             >
               <div style={{ fontSize: 13, fontWeight: 700, color: "var(--color-text-primary)" }}>Trong đó trẻ em</div>
@@ -388,7 +388,7 @@ export const PlannerPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setChildrenCount((c) => Math.max(0, c - 1))}
-                  style={{ width: 28, height: 28, borderRadius: 14, border: "1px solid #ccc", background: "none", cursor: "pointer" }}
+                  style={{ width: 28, height: 28, borderRadius: 14, border: "1px solid var(--color-border)", backgroundColor: "var(--color-surface-container)", color: "var(--color-text-primary)", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                 >
                   -
                 </button>
@@ -396,7 +396,7 @@ export const PlannerPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setChildrenCount((c) => Math.min(travelersCount, c + 1))}
-                  style={{ width: 28, height: 28, borderRadius: 14, border: "1px solid #ccc", background: "none", cursor: "pointer" }}
+                  style={{ width: 28, height: 28, borderRadius: 14, border: "1px solid var(--color-border)", backgroundColor: "var(--color-surface-container)", color: "var(--color-text-primary)", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                 >
                   +
                 </button>
@@ -421,8 +421,8 @@ export const PlannerPage: React.FC = () => {
                   style={{
                     padding: "10px 8px",
                     borderRadius: 8,
-                    border: "1px solid " + (pace === p.val ? "var(--color-primary)" : "var(--color-border, #d1d5db)"),
-                    backgroundColor: pace === p.val ? "var(--color-primary-light)" : "var(--color-bg-card, #ffffff)",
+                    border: "1px solid " + (pace === p.val ? "var(--color-primary)" : "var(--color-border)"),
+                    backgroundColor: pace === p.val ? "var(--color-primary-light)" : "var(--color-surface)",
                     textAlign: "center",
                     cursor: "pointer",
                   }}
@@ -454,8 +454,8 @@ export const PlannerPage: React.FC = () => {
                   style={{
                     padding: "10px 6px",
                     borderRadius: 8,
-                    border: "1px solid " + (transportation === t.val ? "var(--color-primary)" : "var(--color-border, #d1d5db)"),
-                    backgroundColor: transportation === t.val ? "var(--color-primary-light)" : "var(--color-bg-card, #ffffff)",
+                    border: "1px solid " + (transportation === t.val ? "var(--color-primary)" : "var(--color-border)"),
+                    backgroundColor: transportation === t.val ? "var(--color-primary-light)" : "var(--color-surface)",
                     color: transportation === t.val ? "var(--color-primary)" : "var(--color-text-primary)",
                     display: "flex",
                     flexDirection: "column",
@@ -494,8 +494,8 @@ export const PlannerPage: React.FC = () => {
                     style={{
                       padding: "6px 12px",
                       borderRadius: 16,
-                      border: "1px solid " + (active ? "var(--color-primary)" : "var(--color-border, #d1d5db)"),
-                      backgroundColor: active ? "var(--color-primary)" : "var(--color-bg-card, #ffffff)",
+                      border: "1px solid " + (active ? "var(--color-primary)" : "var(--color-border)"),
+                      backgroundColor: active ? "var(--color-primary)" : "var(--color-surface)",
                       color: active ? "#ffffff" : "var(--color-text-primary)",
                       fontSize: 12,
                       fontWeight: 600,
@@ -566,8 +566,8 @@ export const PlannerPage: React.FC = () => {
                   style={{
                     padding: "8px 0",
                     borderRadius: 8,
-                    border: "1px solid " + (budgetPreference === b.val ? "var(--color-primary)" : "var(--color-border, #d1d5db)"),
-                    backgroundColor: budgetPreference === b.val ? "var(--color-primary-light)" : "var(--color-bg-card, #ffffff)",
+                    border: "1px solid " + (budgetPreference === b.val ? "var(--color-primary)" : "var(--color-border)"),
+                    backgroundColor: budgetPreference === b.val ? "var(--color-primary-light)" : "var(--color-surface)",
                     color: budgetPreference === b.val ? "var(--color-primary)" : "var(--color-text-primary)",
                     fontSize: 12,
                     fontWeight: 600,
@@ -614,8 +614,8 @@ export const PlannerPage: React.FC = () => {
           {/* Summary Banner */}
           <div
             style={{
-              backgroundColor: "var(--color-bg-card, #ffffff)",
-              border: "1px solid var(--color-border, #e5e7eb)",
+              backgroundColor: "var(--color-surface)",
+              border: "1px solid var(--color-border)",
               borderRadius: 12,
               padding: 14,
               marginBottom: 16,
@@ -676,10 +676,11 @@ export const PlannerPage: React.FC = () => {
             {itinerary.warnings && itinerary.warnings.length > 0 && (
               <div
                 style={{
-                  backgroundColor: "#fffbeb",
-                  color: "#92400e",
-                  padding: "8px 10px",
-                  borderRadius: 6,
+                  backgroundColor: "var(--color-ochre-bg)",
+                  color: "var(--color-ochre)",
+                  border: "1px solid var(--color-ochre-border)",
+                  padding: "8px 12px",
+                  borderRadius: 8,
                   fontSize: 12,
                   marginTop: 10,
                 }}
@@ -699,8 +700,8 @@ export const PlannerPage: React.FC = () => {
                 style={{
                   padding: "8px 14px",
                   borderRadius: 20,
-                  border: "1px solid " + (activeDayNumber === d.dayNumber ? "var(--color-primary)" : "var(--color-border, #d1d5db)"),
-                  backgroundColor: activeDayNumber === d.dayNumber ? "var(--color-primary)" : "var(--color-bg-card, #ffffff)",
+                  border: "1px solid " + (activeDayNumber === d.dayNumber ? "var(--color-primary)" : "var(--color-border)"),
+                  backgroundColor: activeDayNumber === d.dayNumber ? "var(--color-primary)" : "var(--color-surface)",
                   color: activeDayNumber === d.dayNumber ? "#ffffff" : "var(--color-text-primary)",
                   fontWeight: 700,
                   fontSize: 12,
@@ -749,7 +750,7 @@ export const PlannerPage: React.FC = () => {
                     top: 14,
                     bottom: 14,
                     width: 2,
-                    backgroundColor: "var(--color-border, #e5e7eb)",
+                    backgroundColor: "var(--color-border)",
                   }}
                 />
 
@@ -784,8 +785,8 @@ export const PlannerPage: React.FC = () => {
                     {/* Timeline Item Card */}
                     <div
                       style={{
-                        backgroundColor: "var(--color-bg-card, #ffffff)",
-                        border: "1px solid var(--color-border, #e5e7eb)",
+                        backgroundColor: "var(--color-surface)",
+                        border: "1px solid var(--color-border)",
                         borderRadius: 10,
                         padding: 12,
                         boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
@@ -798,7 +799,7 @@ export const PlannerPage: React.FC = () => {
                               style={{
                                 fontSize: 11,
                                 fontWeight: 700,
-                                backgroundColor: "var(--color-bg-secondary, #f3f4f6)",
+                                backgroundColor: "var(--color-surface-container)",
                                 padding: "2px 6px",
                                 borderRadius: 4,
                                 color: "var(--color-text-primary)",
@@ -838,7 +839,7 @@ export const PlannerPage: React.FC = () => {
                             type="button"
                             disabled={idx === 0}
                             onClick={() => handleMoveItem(activeDayNumber, idx, "up")}
-                            style={{ border: "none", background: "none", cursor: "pointer", padding: 2 }}
+                            style={{ border: "none", background: "none", cursor: "pointer", padding: 2, color: "var(--color-text-secondary)" }}
                             title="Di chuyển lên"
                           >
                             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
@@ -849,7 +850,7 @@ export const PlannerPage: React.FC = () => {
                             type="button"
                             disabled={idx === currentDay.items.length - 1}
                             onClick={() => handleMoveItem(activeDayNumber, idx, "down")}
-                            style={{ border: "none", background: "none", cursor: "pointer", padding: 2 }}
+                            style={{ border: "none", background: "none", cursor: "pointer", padding: 2, color: "var(--color-text-secondary)" }}
                             title="Di chuyển xuống"
                           >
                             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
@@ -889,7 +890,7 @@ export const PlannerPage: React.FC = () => {
                             gap: 10,
                             marginTop: 10,
                             padding: 8,
-                            backgroundColor: "var(--color-bg-secondary, #f9fafb)",
+                            backgroundColor: "var(--color-surface-container)",
                             borderRadius: 8,
                             cursor: "pointer",
                           }}
@@ -947,7 +948,7 @@ export const PlannerPage: React.FC = () => {
                 padding: "11px",
                 borderRadius: 8,
                 border: "1px dashed var(--color-primary)",
-                backgroundColor: "var(--color-bg-card, #ffffff)",
+                backgroundColor: "var(--color-surface)",
                 color: "var(--color-primary)",
                 fontWeight: 700,
                 fontSize: 13,
@@ -1014,8 +1015,8 @@ export const PlannerPage: React.FC = () => {
                     gap: 12,
                     padding: 8,
                     borderRadius: 8,
-                    border: "1px solid var(--color-border, #e5e7eb)",
-                    backgroundColor: "var(--color-bg-card, #ffffff)",
+                    border: "1px solid var(--color-border)",
+                    backgroundColor: "var(--color-surface)",
                     cursor: "pointer",
                   }}
                 >
@@ -1079,8 +1080,8 @@ export const PlannerPage: React.FC = () => {
                     style={{
                       padding: 12,
                       borderRadius: 10,
-                      border: "1px solid var(--color-border, #e5e7eb)",
-                      backgroundColor: "var(--color-bg-card, #ffffff)",
+                      border: "1px solid var(--color-border)",
+                      backgroundColor: "var(--color-surface)",
                       cursor: "pointer",
                       display: "flex",
                       justifyContent: "space-between",
