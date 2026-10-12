@@ -14,13 +14,13 @@
     "build:miniapp": "npm --workspace miniapp run build",
     "build:worker": "npm --workspace worker run build",
     "build:admin": "npm --workspace admin run build",
-    "build": "npm run build:miniapp && npm run build:worker",
+    "build": "npm run build:miniapp && npm run build:worker && npm run build:admin",
     "typecheck:miniapp": "npm --workspace miniapp run typecheck",
     "typecheck:worker": "npm --workspace worker run typecheck",
     "typecheck:admin": "npm --workspace admin run typecheck",
-    "typecheck": "npm run typecheck:miniapp && npm run typecheck:worker",
+    "typecheck": "npm run typecheck:miniapp && npm run typecheck:worker && npm run typecheck:admin",
     "test:admin": "npm --workspace admin run test",
-    "test": "npm --workspace worker run test && npm --workspace miniapp run test",
+    "test": "npm --workspace worker run test && npm --workspace miniapp run test && npm --workspace admin run test",
     "sync:visitors": "node scripts/sync-d1-visitors.mjs"
   }
 }
