@@ -49,6 +49,7 @@ export class EmailSenderService {
 
     if (provider === "test") {
       testInbox.push({ ...opts, timestamp: Date.now() });
+      console.log(`[LOCAL DEV EMAIL] To: ${opts.to} | Message: ${opts.text}`);
       return { success: true, messageId: "test-msg-" + Date.now() };
     }
 
