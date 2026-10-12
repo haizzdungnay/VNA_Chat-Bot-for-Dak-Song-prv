@@ -17,6 +17,7 @@ export interface Env {
   CF_ACCESS_AUD?: string;
   ADMIN_EMAIL_ALLOWLIST?: string;
   ADMIN_DEV_MOCK_AUTH?: string | boolean;
+  MOCK_PAYMENT_ENABLED?: string | boolean;
   ENVIRONMENT?: string;
   ALLOWED_AI_HOSTS?: string;
   // Phase 8.1 Identity & Authentication
@@ -478,4 +479,28 @@ export interface RevenueAnalyticsSummary {
   categoryDistribution: { category: string; count: number; totalAmount: number }[];
   statusDistribution: { status: string; count: number }[];
   topProducts: { name: string; type: "tour" | "service"; bookedCount: number; revenue: number }[];
+}
+
+
+export interface MockPaymentRefundRow {
+  id: string;
+  payment_attempt_id: string;
+  booking_id: string;
+  amount: number;
+  currency: string;
+  reason: string | null;
+  actor: string;
+  idempotency_key: string | null;
+  created_at: string;
+}
+
+export interface IdempotencyRecordRow {
+  id: string;
+  user_id: string;
+  operation: string;
+  idempotency_key: string;
+  resource_id: string | null;
+  request_hash: string;
+  response_json: string | null;
+  created_at: string;
 }

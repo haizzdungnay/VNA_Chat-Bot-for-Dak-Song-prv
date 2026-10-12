@@ -126,7 +126,7 @@ export const createBookingRoute: RouteHandler = async (req, _params, env) => {
     return jsonResponse(res, 201, env);
   } catch (err: any) {
     const msg = err.message || "Không thể tạo đơn đặt.";
-    const status = msg.includes("Lịch trình đã được chỉnh sửa") ? 409 : 400;
+    const status = err.status || (msg.includes("Lịch trình đã được chỉnh sửa") ? 409 : 400);
     return errorResponse(msg, status, env);
   }
 };
@@ -207,7 +207,8 @@ export const mockPaymentRoute: RouteHandler = async (req, params, env) => {
 
     return jsonResponse(res, 200, env);
   } catch (err: any) {
-    return errorResponse(err.message || "Lỗi khi xử lý thanh toán mô phỏng.", 400, env);
+    const status = err.status || 400;
+    return errorResponse(err.message || "Lỗi khi xử lý thanh toán mô phỏng.", status, env);
   }
 };
 
@@ -236,6 +237,7 @@ export const cancelUserBookingRoute: RouteHandler = async (req, params, env) => 
     const booking = await bookingService.cancelBooking(auth.user.id, id, body.reason);
     return jsonResponse({ booking, message: "Hủy đơn đặt thành công." }, 200, env);
   } catch (err: any) {
-    return errorResponse(err.message || "Không thể hủy đơn đặt.", 400, env);
+    const status = err.status || 400;
+    return errorResponse(err.message || "Không thể hủy đơn đặt.", status, env);
   }
 };

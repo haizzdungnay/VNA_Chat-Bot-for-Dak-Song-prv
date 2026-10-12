@@ -23,6 +23,7 @@ function createBusinessTestEnv(overrides = {}) {
   const m6 = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0006_travel_planner.sql'), 'utf8');
   const m7 = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0007_optimistic_lock_guard.sql'), 'utf8');
   const m8 = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0008_business_booking.sql'), 'utf8');
+  const m9 = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0009_booking_transaction_hardening.sql'), 'utf8');
 
   db.exec(m1);
   db.exec(m2);
@@ -32,6 +33,7 @@ function createBusinessTestEnv(overrides = {}) {
   db.exec(m6);
   db.exec(m7);
   db.exec(m8);
+  db.exec(m9);
 
   // Insert two test users for isolation testing
   db.exec("INSERT INTO users (id, email, display_name, status) VALUES ('user-1', 'alice@example.com', 'Alice', 'active');");

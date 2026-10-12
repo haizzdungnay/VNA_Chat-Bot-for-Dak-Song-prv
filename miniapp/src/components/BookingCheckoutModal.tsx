@@ -43,6 +43,8 @@ export const BookingCheckoutModal: React.FC<BookingCheckoutModalProps> = ({
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
   const [notes, setNotes] = useState("");
+  const [bookingIdempotencyKey] = useState(() => "bk-idem-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8));
+  const [paymentIdempotencyKey] = useState(() => "pay-idem-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8));
   const [bookingLoading, setBookingLoading] = useState(false);
   const [createdBooking, setCreatedBooking] = useState<TourBooking | null>(null);
 
@@ -119,6 +121,7 @@ export const BookingCheckoutModal: React.FC<BookingCheckoutModalProps> = ({
         customerPhone: customerPhone.trim(),
         customerEmail: customerEmail.trim() || null,
         notes: notes.trim() || null,
+          idempotencyKey: bookingIdempotencyKey,
       });
       setCreatedBooking(res.booking);
       setStage("payment");
@@ -137,6 +140,7 @@ export const BookingCheckoutModal: React.FC<BookingCheckoutModalProps> = ({
       const res = await api.processMockPayment({
         bookingId: createdBooking.id,
         simulateStatus: status,
+          idempotencyKey: paymentIdempotencyKey,
       });
       setPaymentResult({
         success: res.success,

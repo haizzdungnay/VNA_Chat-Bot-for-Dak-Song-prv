@@ -102,7 +102,7 @@ export class IdentityService {
         valid: true,
         zaloId: "mock-zalo-user-1",
         name: "Du khách thử nghiệm",
-        avatar: "https://static.dggv.edu.vn/360/1682416281765_IMG20190809101005.jpg",
+        picture: "https://static.dggv.edu.vn/360/1682416281765_IMG20190809101005.jpg",
       };
     }
 

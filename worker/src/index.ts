@@ -134,6 +134,7 @@ router.get("/api/admin/bookings", adminBookingsListRoute);
 router.get("/api/admin/bookings/:id", adminBookingDetailRoute);
 router.post("/api/admin/bookings/:id/cancel", adminBookingCancelRoute);
 router.post("/api/admin/bookings/:id/mock-refund", adminBookingMockRefundRoute);
+router.post("/api/admin/bookings/:id/refund", adminBookingMockRefundRoute);
 router.get("/api/admin/revenue/analytics", adminRevenueAnalyticsRoute);
 router.get("/api/admin/revenue/export", adminRevenueExportRoute);
 

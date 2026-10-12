@@ -317,7 +317,8 @@ export const adminBookingCancelRoute: RouteHandler = async (req, params, env) =>
     );
     return jsonResponse({ booking, message: "Hủy đơn đặt thành công." }, 200, env);
   } catch (err: any) {
-    return errorResponse(err.message || "Lỗi khi hủy đơn đặt.", 400, env);
+    const status = err.status || 400;
+    return errorResponse(err.message || "Lỗi khi hủy đơn đặt.", status, env);
   }
 };
 
@@ -350,7 +351,8 @@ export const adminBookingMockRefundRoute: RouteHandler = async (req, params, env
       env
     );
   } catch (err: any) {
-    return errorResponse(err.message || "Lỗi khi xử lý hoàn tiền mô phỏng.", 400, env);
+    const status = err.status || 400;
+    return errorResponse(err.message || "Lỗi khi xử lý hoàn tiền mô phỏng.", status, env);
   }
 };
 

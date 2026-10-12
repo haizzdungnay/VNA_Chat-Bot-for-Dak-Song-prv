@@ -437,7 +437,7 @@ export const BookingsPage: React.FC<BookingsPageProps> = ({ onNotify }) => {
                   }}
                 >
                   <div style={{ display: "flex", gap: 8 }}>
-                    {detailData.booking.booking_status !== "cancelled" && (
+                    {detailData.booking.booking_status !== "cancelled" && detailData.booking.payment_status !== "paid" && (
                       <button
                         onClick={() => setConfirmCancelId(detailData.booking.id)}
                         className="btn-secondary"

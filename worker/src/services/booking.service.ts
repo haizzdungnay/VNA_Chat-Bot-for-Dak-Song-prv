@@ -9,6 +9,7 @@ import type {
   TourBookingItemRow,
   MockPaymentAttemptRow,
   BookingStateEventRow,
+  IdempotencyRecordRow,
   PricingMode,
   PaymentMethod,
 } from "../types";
@@ -41,6 +42,23 @@ export interface MockPaymentInput {
   idempotencyKey?: string | null;
 }
 
+const SUPPORTED_PRICING_MODES: PricingMode[] = [
+  "fixed",
+  "per_person",
+  "per_adult",
+  "per_child",
+  "per_day",
+  "per_night",
+  "per_group",
+];
+
+async function sha256Hex(message: string): Promise<string> {
+  const msgBuffer = new TextEncoder().encode(message);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export class BookingService {
   constructor(private env: Env) {}
 
@@ -52,13 +70,13 @@ export class BookingService {
     quote: BookingQuoteRow;
     items: BookingQuoteItemRow[];
   }> {
-    const adults = Math.floor(Number(input.adultsCount) || 0);
-    const children = Math.floor(Number(input.childrenCount) || 0);
+    const adults = Math.floor(Number(input.adultsCount));
+    const children = Math.floor(Number(input.childrenCount));
 
-    if (adults < 1) {
+    if (!Number.isSafeInteger(adults) || adults < 1) {
       throw new Error("Số lượng người lớn tối thiểu là 1.");
     }
-    if (children < 0) {
+    if (!Number.isSafeInteger(children) || children < 0) {
       throw new Error("Số lượng trẻ em không được âm.");
     }
     const totalTravelers = adults + children;
@@ -66,23 +84,36 @@ export class BookingService {
       throw new Error("Đoàn vượt quá giới hạn tối đa 50 người.");
     }
 
-    let durationDays = Math.max(1, Math.floor(Number(input.durationDays) || 1));
+    let durationDays = Math.floor(Number(input.durationDays) || 1);
+    if (!Number.isSafeInteger(durationDays) || durationDays < 1) {
+      durationDays = 1;
+    }
+
     let itinVersion: number | null = null;
     let tourRow: TourProductRow | null = null;
 
-    // 1. Kiểm tra quyền sở hữu lịch trình nếu báo giá gắn với itinerary
+    // 1. Kiểm tra quyền sở hữu và tính nhất quán nếu báo giá gắn với itinerary
     if (input.itineraryId) {
       const itin = await this.env.DB.prepare(
-        "SELECT id, user_id, duration_days, version FROM travel_itineraries WHERE id = ?"
+        "SELECT id, user_id, duration_days, travelers_count, version FROM travel_itineraries WHERE id = ?"
       )
         .bind(input.itineraryId)
-        .first<{ id: string; user_id: string; duration_days: number; version: number }>();
+        .first<{
+          id: string;
+          user_id: string;
+          duration_days: number;
+          travelers_count: number;
+          version: number;
+        }>();
 
       if (!itin) {
         throw new Error("Không tìm thấy lịch trình được chỉ định.");
       }
       if (itin.user_id !== input.userId) {
         throw new Error("Bạn không có quyền lập báo giá cho lịch trình của người dùng khác.");
+      }
+      if (totalTravelers !== itin.travelers_count) {
+        throw new Error("Số lượng khách không khớp với thông tin lịch trình đã lưu.");
       }
       durationDays = itin.duration_days;
       itinVersion = itin.version;
@@ -113,6 +144,9 @@ export class BookingService {
     // 3. Nếu có tour sản phẩm, thêm dòng phí Tour gốc
     if (tourRow && tourRow.base_price > 0) {
       const lineTotal = tourRow.base_price * totalTravelers;
+      if (!Number.isSafeInteger(lineTotal) || lineTotal < 0) {
+        throw new Error("Giá tour vượt quá giới hạn an toàn.");
+      }
       calculatedItems.push({
         id: "qi-" + crypto.randomUUID(),
         quote_id: quoteId,
@@ -149,43 +183,46 @@ export class BookingService {
         .bind(srvId)
         .first<TourPriceRuleRow>();
 
-      if (!priceRule || priceRule.unit_price < 0) {
+      if (!priceRule || !Number.isSafeInteger(priceRule.unit_price) || priceRule.unit_price < 0) {
         throw new Error(`Dịch vụ "${service.name}" chưa có bảng giá khả dụng.`);
       }
 
+      const pMode = priceRule.pricing_mode as PricingMode;
+      if (!SUPPORTED_PRICING_MODES.includes(pMode)) {
+        throw new Error(`Chế độ tính giá "${priceRule.pricing_mode}" không hợp lệ.`);
+      }
+
       let qty = 1;
-      let lineTotal = 0;
       const unitPrice = priceRule.unit_price;
 
-      switch (priceRule.pricing_mode as PricingMode) {
+      switch (pMode) {
         case "fixed":
         case "per_group":
           qty = 1;
-          lineTotal = unitPrice;
           break;
         case "per_person":
           qty = totalTravelers;
-          lineTotal = unitPrice * qty;
           break;
         case "per_adult":
           qty = adults;
-          lineTotal = unitPrice * qty;
           break;
         case "per_child":
           qty = children;
-          lineTotal = unitPrice * qty;
           break;
         case "per_day":
           qty = durationDays;
-          lineTotal = unitPrice * qty;
           break;
         case "per_night":
-          qty = Math.max(1, durationDays - 1);
-          lineTotal = unitPrice * qty;
+          // ponytail: Tour 1 ngày không lưu trú đêm, tính 0 đêm; nâng cấp khi có lịch chọn ngày cụ thể
+          qty = Math.max(0, durationDays - 1);
           break;
         default:
-          qty = 1;
-          lineTotal = unitPrice;
+          throw new Error(`Chế độ tính giá "${pMode}" không được hỗ trợ.`);
+      }
+
+      const lineTotal = unitPrice * qty;
+      if (!Number.isSafeInteger(lineTotal) || lineTotal < 0) {
+        throw new Error(`Tổng giá dịch vụ "${service.name}" vượt giới hạn an toàn.`);
       }
 
       calculatedItems.push({
@@ -202,6 +239,9 @@ export class BookingService {
     }
 
     const subtotal = calculatedItems.reduce((acc, it) => acc + it.line_total, 0);
+    if (!Number.isSafeInteger(subtotal) || subtotal < 0) {
+      throw new Error("Tổng giá báo giá không hợp lệ.");
+    }
     const totalPrice = subtotal;
 
     // Báo giá có hạn trong 30 phút
@@ -210,7 +250,7 @@ export class BookingService {
       "QT-" +
       Date.now().toString(36).toUpperCase() +
       "-" +
-      Math.random().toString(36).substring(2, 6).toUpperCase();
+      crypto.randomUUID().slice(0, 6).toUpperCase();
 
     const quoteRow: BookingQuoteRow = {
       id: quoteId,
@@ -283,43 +323,68 @@ export class BookingService {
 
   /**
    * Tạo đơn đặt từ báo giá khả dụng
+   * Atomic compare-and-swap, database unique quote constraint & scoped idempotency.
    */
   async createBooking(input: CreateBookingInput): Promise<{
     booking: TourBookingRow;
     items: TourBookingItemRow[];
   }> {
-    // 1. Kiểm tra Idempotency trước
-    if (input.idempotencyKey) {
-      const existing = await this.env.DB.prepare(
-        "SELECT * FROM tour_bookings WHERE idempotency_key = ?"
-      )
-        .bind(input.idempotencyKey)
-        .first<TourBookingRow>();
-
-      if (existing) {
-        if (existing.user_id !== input.userId) {
-          throw new Error("Khóa trùng lặp thuộc về người dùng khác.");
-        }
-        const items = await this.env.DB.prepare(
-          "SELECT * FROM tour_booking_items WHERE booking_id = ?"
-        )
-          .bind(existing.id)
-          .all<TourBookingItemRow>();
-        return { booking: existing, items: items.results || [] };
-      }
-    }
-
-    // 2. Validate thông tin khách hàng
     const name = (input.customerName || "").trim();
     const phone = (input.customerPhone || "").trim();
     if (name.length < 2 || name.length > 100) {
-      throw new Error("Tên người đặt phải từ 2 đến 100 ký tự.");
+      const err = new Error("Tên người đặt phải từ 2 đến 100 ký tự.");
+      (err as any).status = 400;
+      throw err;
     }
     if (!/^[0-9+ ]{8,15}$/.test(phone)) {
-      throw new Error("Số điện thoại liên hệ không hợp lệ.");
+      const err = new Error("Số điện thoại liên hệ không hợp lệ.");
+      (err as any).status = 400;
+      throw err;
     }
 
-    // 3. Lấy báo giá
+    const payloadFingerprint = await sha256Hex(
+      JSON.stringify({
+        userId: input.userId,
+        quoteReference: input.quoteReference,
+        customerName: name,
+        customerPhone: phone,
+        customerEmail: input.customerEmail ? input.customerEmail.trim() : null,
+        notes: input.notes ? input.notes.trim() : null,
+      })
+    );
+
+    // 1. Kiểm tra Idempotency chặt chẽ
+    if (input.idempotencyKey) {
+      const cleanKey = input.idempotencyKey.trim();
+      const existingRecord = await this.env.DB.prepare(
+        "SELECT * FROM idempotency_records WHERE idempotency_key = ?"
+      )
+        .bind(cleanKey)
+        .first<IdempotencyRecordRow>();
+
+      if (existingRecord) {
+        if (existingRecord.user_id !== input.userId) {
+          const err = new Error("Khóa định danh (Idempotency Key) đã được sử dụng.");
+          (err as any).status = 409;
+          throw err;
+        }
+        if (existingRecord.operation !== "create_booking") {
+          const err = new Error("Khóa định danh không hợp lệ cho thao tác tạo đơn.");
+          (err as any).status = 409;
+          throw err;
+        }
+        if (existingRecord.request_hash !== payloadFingerprint) {
+          const err = new Error("Khóa định danh đã được dùng với thông tin đặt tour khác.");
+          (err as any).status = 409;
+          throw err;
+        }
+        if (existingRecord.response_json) {
+          return JSON.parse(existingRecord.response_json);
+        }
+      }
+    }
+
+    // 2. Lấy báo giá
     const quote = await this.env.DB.prepare(
       "SELECT * FROM booking_quotes WHERE quote_reference = ? AND user_id = ?"
     )
@@ -327,21 +392,27 @@ export class BookingService {
       .first<BookingQuoteRow>();
 
     if (!quote) {
-      throw new Error("Không tìm thấy báo giá hoặc bạn không có quyền truy cập báo giá này.");
+      const err = new Error("Không tìm thấy báo giá hoặc bạn không có quyền truy cập báo giá này.");
+      (err as any).status = 404;
+      throw err;
     }
 
     if (quote.status !== "active") {
-      throw new Error("Báo giá không còn hiệu lực.");
+      const err = new Error("Báo giá không còn hiệu lực.");
+      (err as any).status = 409;
+      throw err;
     }
 
     if (new Date(quote.expires_at).getTime() < Date.now()) {
       await this.env.DB.prepare("UPDATE booking_quotes SET status = 'expired' WHERE id = ?")
         .bind(quote.id)
         .run();
-      throw new Error("Báo giá đã hết hạn 30 phút. Vui lòng nhận báo giá mới.");
+      const err = new Error("Báo giá đã hết hạn 30 phút. Vui lòng nhận báo giá mới.");
+      (err as any).status = 400;
+      throw err;
     }
 
-    // 4. Nếu báo giá gắn với itinerary, kiểm tra version concurrency
+    // 3. Nếu báo giá gắn với itinerary, kiểm tra version concurrency
     if (quote.itinerary_id) {
       const currentItin = await this.env.DB.prepare(
         "SELECT version FROM travel_itineraries WHERE id = ? AND user_id = ?"
@@ -353,10 +424,25 @@ export class BookingService {
         await this.env.DB.prepare("UPDATE booking_quotes SET status = 'invalidated' WHERE id = ?")
           .bind(quote.id)
           .run();
-        throw new Error(
+        const err = new Error(
           "Lịch trình đã được chỉnh sửa sau khi báo giá được phát hành. Vui lòng tính lại báo giá."
         );
+        (err as any).status = 409;
+        throw err;
       }
+    }
+
+    // Kiểm tra xem báo giá đã từng được gắn vào booking nào chưa
+    const existingBookingWithQuote = await this.env.DB.prepare(
+      "SELECT id FROM tour_bookings WHERE quote_id = ?"
+    )
+      .bind(quote.id)
+      .first<{ id: string }>();
+
+    if (existingBookingWithQuote) {
+      const err = new Error("Báo giá này đã được sử dụng để tạo đơn đặt trước đó.");
+      (err as any).status = 409;
+      throw err;
     }
 
     // Lấy items của quote
@@ -371,8 +457,9 @@ export class BookingService {
       "BK-" +
       Date.now().toString(36).toUpperCase() +
       "-" +
-      Math.random().toString(36).substring(2, 6).toUpperCase();
+      crypto.randomUUID().slice(0, 6).toUpperCase();
 
+    const now = new Date().toISOString();
     const bookingRow: TourBookingRow = {
       id: bookingId,
       booking_reference: bookingRef,
@@ -390,9 +477,9 @@ export class BookingService {
       booking_status: "pending",
       payment_status: "unpaid",
       notes: input.notes ? input.notes.trim() : null,
-      idempotency_key: input.idempotencyKey || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      idempotency_key: input.idempotencyKey ? input.idempotencyKey.trim() : null,
+      created_at: now,
+      updated_at: now,
     };
 
     const bookingItems: TourBookingItemRow[] = (quoteItems.results || []).map((qi) => ({
@@ -407,8 +494,24 @@ export class BookingService {
       line_total: qi.line_total,
     }));
 
-    // Batch thực thi: tạo booking, tạo items, đánh dấu quote consumed, ghi state event
+    const finalResponse = {
+      booking: bookingRow,
+      items: bookingItems,
+    };
+
+    // Batch thực thi nguyên tử:
+    // 1. CAS Quote consumption
+    // 2. Assertion guard để rollback toàn bộ nếu quote CAS cập nhật 0 dòng
+    // 3. Insert tour_bookings (unique quote_id index ngăn double booking tại SQLite engine)
+    // 4. Insert booking items
+    // 5. Insert state event
+    // 6. Xóa guard
+    // 7. Insert idempotency record nếu có key
     const statements: any[] = [
+      this.env.DB.prepare(
+        "UPDATE booking_quotes SET status = 'consumed' WHERE id = ? AND user_id = ? AND status = 'active'"
+      ).bind(quote.id, input.userId),
+      this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"),
       this.env.DB.prepare(
         `INSERT INTO tour_bookings (id, booking_reference, user_id, quote_id, tour_id, itinerary_id, customer_name, customer_phone, customer_email, adults_count, children_count, total_amount, currency, booking_status, payment_status, notes, idempotency_key, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -433,18 +536,6 @@ export class BookingService {
         bookingRow.created_at,
         bookingRow.updated_at
       ),
-      this.env.DB.prepare("UPDATE booking_quotes SET status = 'consumed' WHERE id = ?").bind(
-        quote.id
-      ),
-      this.env.DB.prepare(
-        `INSERT INTO booking_state_events (id, booking_id, event_type, from_status, to_status, actor, reason, created_at)
-         VALUES (?, ?, 'created', NULL, 'pending', 'customer', ?, ?)`
-      ).bind(
-        "ev-" + crypto.randomUUID(),
-        bookingId,
-        `Đặt đơn hàng từ báo giá ${quote.quote_reference}`,
-        new Date().toISOString()
-      ),
     ];
 
     for (const bi of bookingItems) {
@@ -466,12 +557,53 @@ export class BookingService {
       );
     }
 
-    await this.env.DB.batch(statements);
+    statements.push(
+      this.env.DB.prepare(
+        `INSERT INTO booking_state_events (id, booking_id, event_type, from_status, to_status, actor, reason, created_at)
+         VALUES (?, ?, 'created', NULL, 'pending', 'customer', ?, ?)`
+      ).bind(
+        "ev-" + crypto.randomUUID(),
+        bookingId,
+        `Đặt đơn hàng từ báo giá ${quote.quote_reference}`,
+        now
+      ),
+      this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1")
+    );
 
-    return {
-      booking: bookingRow,
-      items: bookingItems,
-    };
+    if (input.idempotencyKey) {
+      statements.push(
+        this.env.DB.prepare(
+          `INSERT INTO idempotency_records (id, user_id, operation, idempotency_key, resource_id, request_hash, response_json, created_at)
+           VALUES (?, ?, 'create_booking', ?, ?, ?, ?, ?)`
+        ).bind(
+          "idem-" + crypto.randomUUID(),
+          input.userId,
+          input.idempotencyKey.trim(),
+          bookingId,
+          payloadFingerprint,
+          JSON.stringify(finalResponse),
+          now
+        )
+      );
+    }
+
+    try {
+      await this.env.DB.batch(statements);
+    } catch (batchErr: any) {
+      const msg = String(batchErr?.message || "");
+      if (
+        msg.includes("CHECK constraint failed") ||
+        msg.includes("UNIQUE constraint failed") ||
+        msg.includes("conflict")
+      ) {
+        const conflictErr = new Error("Báo giá đã được sử dụng hoặc xung đột giao dịch.");
+        (conflictErr as any).status = 409;
+        throw conflictErr;
+      }
+      throw batchErr;
+    }
+
+    return finalResponse;
   }
 
   /**
@@ -493,7 +625,9 @@ export class BookingService {
       .first<TourBookingRow>();
 
     if (!booking) {
-      throw new Error("Không tìm thấy đơn đặt hàng.");
+      const err = new Error("Không tìm thấy đơn đặt hàng.");
+      (err as any).status = 404;
+      throw err;
     }
 
     const items = await this.env.DB.prepare(
@@ -550,22 +684,29 @@ export class BookingService {
       .first<TourBookingRow>();
 
     if (!booking) {
-      throw new Error("Không tìm thấy đơn đặt hàng.");
+      const err = new Error("Không tìm thấy đơn đặt hàng.");
+      (err as any).status = 404;
+      throw err;
     }
 
     if (booking.booking_status === "cancelled") {
-      throw new Error("Đơn đặt hàng đã ở trạng thái hủy trước đó.");
+      const err = new Error("Đơn đặt hàng đã ở trạng thái hủy trước đó.");
+      (err as any).status = 409;
+      throw err;
     }
 
     if (booking.payment_status === "paid") {
-      throw new Error("Không thể tự hủy đơn hàng đã thanh toán. Vui lòng liên hệ ban quản lý.");
+      const err = new Error("Không thể tự hủy đơn hàng đã thanh toán. Vui lòng liên hệ ban quản lý.");
+      (err as any).status = 409;
+      throw err;
     }
 
     const now = new Date().toISOString();
     const statements: any[] = [
       this.env.DB.prepare(
-        "UPDATE tour_bookings SET booking_status = 'cancelled', updated_at = ? WHERE id = ?"
+        "UPDATE tour_bookings SET booking_status = 'cancelled', updated_at = ? WHERE id = ? AND booking_status != 'cancelled' AND payment_status != 'paid'"
       ).bind(now, bookingId),
+      this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"),
       this.env.DB.prepare(
         `INSERT INTO booking_state_events (id, booking_id, event_type, from_status, to_status, actor, reason, created_at)
          VALUES (?, ?, 'cancelled', ?, 'cancelled', 'customer', ?, ?)`
@@ -576,9 +717,17 @@ export class BookingService {
         reason || "Người dùng tự hủy đơn",
         now
       ),
+      this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"),
     ];
 
-    await this.env.DB.batch(statements);
+    try {
+      await this.env.DB.batch(statements);
+    } catch {
+      const err = new Error("Không thể hủy đơn đặt do trạng thái đã thay đổi.");
+      (err as any).status = 409;
+      throw err;
+    }
+
     booking.booking_status = "cancelled";
     booking.updated_at = now;
     return booking;
@@ -594,28 +743,20 @@ export class BookingService {
     transactionReference: string;
     message: string;
   }> {
-    // 1. Kiểm tra Idempotency
-    if (input.idempotencyKey) {
-      const existingTx = await this.env.DB.prepare(
-        "SELECT * FROM mock_payment_attempts WHERE idempotency_key = ?"
-      )
-        .bind(input.idempotencyKey)
-        .first<MockPaymentAttemptRow>();
-
-      if (existingTx && existingTx.status === "success") {
-        const b = await this.env.DB.prepare("SELECT * FROM tour_bookings WHERE id = ?")
-          .bind(existingTx.booking_id)
-          .first<TourBookingRow>();
-        return {
-          success: true,
-          booking: b!,
-          transactionReference: existingTx.transaction_reference,
-          message: "Giao dịch mô phỏng đã hoàn tất trước đó (Idempotent).",
-        };
-      }
+    // 0. Feature flag kiểm tra
+    if (this.env.MOCK_PAYMENT_ENABLED === "false" || this.env.MOCK_PAYMENT_ENABLED === false) {
+      const err = new Error("Thanh toán mô phỏng đang bị vô hiệu hóa trên hệ thống.");
+      (err as any).status = 503;
+      throw err;
     }
 
-    // 2. Kiểm tra booking
+    if (input.simulateStatus !== "success" && input.simulateStatus !== "failed") {
+      const err = new Error("Trạng thái mô phỏng không hợp lệ (chỉ chấp nhận 'success' hoặc 'failed').");
+      (err as any).status = 400;
+      throw err;
+    }
+
+    // 1. Luôn xác thực quyền sở hữu booking của user trước tiên (P0-03 Auth/Ownership first)
     const booking = await this.env.DB.prepare(
       "SELECT * FROM tour_bookings WHERE id = ? AND user_id = ?"
     )
@@ -623,29 +764,102 @@ export class BookingService {
       .first<TourBookingRow>();
 
     if (!booking) {
-      throw new Error("Không tìm thấy đơn đặt hàng.");
+      const err = new Error("Không tìm thấy đơn đặt hàng.");
+      (err as any).status = 404;
+      throw err;
+    }
+
+    const payloadFingerprint = await sha256Hex(
+      JSON.stringify({
+        userId: input.userId,
+        bookingId: input.bookingId,
+        paymentMethod: input.paymentMethod || "mock_bank_transfer",
+        simulateStatus: input.simulateStatus,
+      })
+    );
+
+    // 2. Kiểm tra Idempotency chặt chẽ
+    if (input.idempotencyKey) {
+      const cleanKey = input.idempotencyKey.trim();
+      const existingRecord = await this.env.DB.prepare(
+        "SELECT * FROM idempotency_records WHERE idempotency_key = ?"
+      )
+        .bind(cleanKey)
+        .first<IdempotencyRecordRow>();
+
+      if (existingRecord) {
+        if (existingRecord.user_id !== input.userId) {
+          const err = new Error("Khóa định danh (Idempotency Key) đã được sử dụng.");
+          (err as any).status = 409;
+          throw err;
+        }
+        if (existingRecord.operation !== "mock_payment") {
+          const err = new Error("Khóa định danh không hợp lệ cho thao tác thanh toán.");
+          (err as any).status = 409;
+          throw err;
+        }
+        if (existingRecord.resource_id !== input.bookingId) {
+          const err = new Error("Khóa định danh đã được dùng cho đơn đặt khác.");
+          (err as any).status = 409;
+          throw err;
+        }
+        if (existingRecord.request_hash !== payloadFingerprint) {
+          const err = new Error("Khóa định danh đã được dùng với thông tin thanh toán khác.");
+          (err as any).status = 409;
+          throw err;
+        }
+        if (existingRecord.response_json) {
+          return JSON.parse(existingRecord.response_json);
+        }
+      }
+    }
+
+    // 3. State machine validation
+    if (booking.booking_status === "cancelled") {
+      const err = new Error("Không thể thanh toán đơn hàng đã bị hủy.");
+      (err as any).status = 409;
+      throw err;
     }
 
     if (booking.payment_status === "paid") {
-      throw new Error("Đơn hàng này đã được thanh toán thành công trước đó.");
+      const err = new Error("Đơn hàng này đã được thanh toán thành công trước đó.");
+      (err as any).status = 409;
+      throw err;
     }
 
-    if (booking.booking_status === "cancelled") {
-      throw new Error("Không thể thanh toán đơn hàng đã bị hủy.");
+    if (booking.payment_status === "refunded") {
+      const err = new Error("Đơn hàng đã được hoàn tiền, không thể thanh toán lại.");
+      (err as any).status = 409;
+      throw err;
     }
 
     const txRef =
       "TX-" +
       Date.now().toString(36).toUpperCase() +
       "-" +
-      Math.random().toString(36).substring(2, 6).toUpperCase();
+      crypto.randomUUID().slice(0, 6).toUpperCase();
     const now = new Date().toISOString();
 
     if (input.simulateStatus === "success") {
+      const finalBooking: TourBookingRow = {
+        ...booking,
+        payment_status: "paid",
+        booking_status: "confirmed",
+        updated_at: now,
+      };
+
+      const finalResponse = {
+        success: true,
+        booking: finalBooking,
+        transactionReference: txRef,
+        message: "THANH TOÁN MÔ PHỎNG — KHÔNG THU TIỀN THẬT",
+      };
+
       const statements: any[] = [
         this.env.DB.prepare(
-          "UPDATE tour_bookings SET payment_status = 'paid', booking_status = 'confirmed', updated_at = ? WHERE id = ?"
-        ).bind(now, booking.id),
+          "UPDATE tour_bookings SET payment_status = 'paid', booking_status = 'confirmed', updated_at = ? WHERE id = ? AND user_id = ? AND booking_status = 'pending' AND payment_status IN ('unpaid', 'failed')"
+        ).bind(now, booking.id, input.userId),
+        this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"),
         this.env.DB.prepare(
           `INSERT INTO mock_payment_attempts (id, booking_id, transaction_reference, payment_method, amount, currency, status, idempotency_key, failure_reason, refunded_amount, created_at)
            VALUES (?, ?, ?, ?, ?, 'VND', 'success', ?, NULL, 0, ?)`
@@ -655,33 +869,70 @@ export class BookingService {
           txRef,
           input.paymentMethod,
           booking.total_amount,
-          input.idempotencyKey || null,
+          input.idempotencyKey ? input.idempotencyKey.trim() : null,
           now
         ),
         this.env.DB.prepare(
           `INSERT INTO booking_state_events (id, booking_id, event_type, from_status, to_status, actor, reason, created_at)
            VALUES (?, ?, 'payment_success', ?, 'paid', 'customer', 'Mô phỏng thanh toán thành công', ?)`
         ).bind("ev-" + crypto.randomUUID(), booking.id, booking.payment_status, now),
+        this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"),
       ];
 
-      await this.env.DB.batch(statements);
+      if (input.idempotencyKey) {
+        statements.push(
+          this.env.DB.prepare(
+            `INSERT INTO idempotency_records (id, user_id, operation, idempotency_key, resource_id, request_hash, response_json, created_at)
+             VALUES (?, ?, 'mock_payment', ?, ?, ?, ?, ?)`
+          ).bind(
+            "idem-" + crypto.randomUUID(),
+            input.userId,
+            input.idempotencyKey.trim(),
+            booking.id,
+            payloadFingerprint,
+            JSON.stringify(finalResponse),
+            now
+          )
+        );
+      }
 
-      booking.payment_status = "paid";
-      booking.booking_status = "confirmed";
-      booking.updated_at = now;
+      try {
+        await this.env.DB.batch(statements);
+      } catch (batchErr: any) {
+        const msg = String(batchErr?.message || "");
+        if (
+          msg.includes("CHECK constraint failed") ||
+          msg.includes("UNIQUE constraint failed") ||
+          msg.includes("conflict")
+        ) {
+          const conflictErr = new Error("Đơn hàng đã được thanh toán hoặc xung đột giao dịch.");
+          (conflictErr as any).status = 409;
+          throw conflictErr;
+        }
+        throw batchErr;
+      }
 
-      return {
-        success: true,
-        booking,
-        transactionReference: txRef,
-        message: "THANH TOÁN MÔ PHỎNG — KHÔNG THU TIỀN THẬT",
-      };
+      return finalResponse;
     } else {
       // Simulate failure
+      const finalBooking: TourBookingRow = {
+        ...booking,
+        payment_status: "failed",
+        updated_at: now,
+      };
+
+      const finalResponse = {
+        success: false,
+        booking: finalBooking,
+        transactionReference: txRef,
+        message: "Giao dịch mô phỏng thất bại. Bạn có thể thử lại.",
+      };
+
       const statements: any[] = [
         this.env.DB.prepare(
-          "UPDATE tour_bookings SET payment_status = 'failed', updated_at = ? WHERE id = ?"
-        ).bind(now, booking.id),
+          "UPDATE tour_bookings SET payment_status = 'failed', updated_at = ? WHERE id = ? AND user_id = ? AND booking_status = 'pending' AND payment_status IN ('unpaid', 'failed')"
+        ).bind(now, booking.id, input.userId),
+        this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"),
         this.env.DB.prepare(
           `INSERT INTO mock_payment_attempts (id, booking_id, transaction_reference, payment_method, amount, currency, status, idempotency_key, failure_reason, refunded_amount, created_at)
            VALUES (?, ?, ?, ?, ?, 'VND', 'failed', ?, 'Thử nghiệm giao dịch thất bại có chủ đích', 0, ?)`
@@ -691,26 +942,50 @@ export class BookingService {
           txRef,
           input.paymentMethod,
           booking.total_amount,
-          input.idempotencyKey || null,
+          input.idempotencyKey ? input.idempotencyKey.trim() : null,
           now
         ),
         this.env.DB.prepare(
           `INSERT INTO booking_state_events (id, booking_id, event_type, from_status, to_status, actor, reason, created_at)
            VALUES (?, ?, 'payment_failed', ?, 'failed', 'customer', 'Mô phỏng thanh toán thất bại', ?)`
         ).bind("ev-" + crypto.randomUUID(), booking.id, booking.payment_status, now),
+        this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"),
       ];
 
-      await this.env.DB.batch(statements);
+      if (input.idempotencyKey) {
+        statements.push(
+          this.env.DB.prepare(
+            `INSERT INTO idempotency_records (id, user_id, operation, idempotency_key, resource_id, request_hash, response_json, created_at)
+             VALUES (?, ?, 'mock_payment', ?, ?, ?, ?, ?)`
+          ).bind(
+            "idem-" + crypto.randomUUID(),
+            input.userId,
+            input.idempotencyKey.trim(),
+            booking.id,
+            payloadFingerprint,
+            JSON.stringify(finalResponse),
+            now
+          )
+        );
+      }
 
-      booking.payment_status = "failed";
-      booking.updated_at = now;
+      try {
+        await this.env.DB.batch(statements);
+      } catch (batchErr: any) {
+        const msg = String(batchErr?.message || "");
+        if (
+          msg.includes("CHECK constraint failed") ||
+          msg.includes("UNIQUE constraint failed") ||
+          msg.includes("conflict")
+        ) {
+          const conflictErr = new Error("Trạng thái đơn hàng không hợp lệ để ghi nhận thanh toán thất bại.");
+          (conflictErr as any).status = 409;
+          throw conflictErr;
+        }
+        throw batchErr;
+      }
 
-      return {
-        success: false,
-        booking,
-        transactionReference: txRef,
-        message: "Giao dịch mô phỏng thất bại. Bạn có thể thử lại.",
-      };
+      return finalResponse;
     }
   }
 }
