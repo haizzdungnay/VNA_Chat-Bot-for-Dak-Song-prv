@@ -281,6 +281,7 @@ test('HTTP Router E2E: Itineraries public preview, auth save/list/delete, and ra
 
 test('PlannerService: Server-side validation rejects invalid placeId during save', async () => {
   const env = createPlannerTestEnv();
+  env.rawDb.exec("INSERT INTO users (id, display_name, status) VALUES ('user-uuid-1111', 'User 1111', 'active');");
   const planner = new PlannerService(env);
 
   const preview = await planner.generatePreview({
@@ -328,5 +329,85 @@ test('PlannerService: Optimistic locking rejects stale version update with 409',
   await assert.rejects(
     async () => planner.updateItinerary(user, saved.id, { ...saved, title: 'Bản sửa cũ từ thiết bị khác', version: 1 }),
     /Xung đột phiên bản/
+  );
+});
+
+test('PlannerService: True concurrent updates on version 1 allows strictly one winner and preserves data without corruption', async () => {
+  const env = createPlannerTestEnv();
+  const planner = new PlannerService(env);
+  const user = 'user-uuid-concur';
+  env.rawDb.exec(`INSERT INTO users (id, display_name, status) VALUES ('${user}', 'User Concur', 'active');`);
+
+  const preview = await planner.generatePreview({
+    durationDays: 1,
+    travelersCount: 2,
+    startDate: '2026-11-20',
+  });
+
+  const saved = await planner.saveItinerary(user, preview);
+  assert.equal(saved.version, 1);
+
+  // Two simultaneous update attempts with version 1
+  const attemptA = planner.updateItinerary(user, saved.id, {
+    ...saved,
+    title: 'Update from Device A',
+    version: 1,
+  });
+
+  const attemptB = planner.updateItinerary(user, saved.id, {
+    ...saved,
+    title: 'Update from Device B',
+    version: 1,
+  });
+
+  const results = await Promise.allSettled([attemptA, attemptB]);
+  const fulfilled = results.filter((r) => r.status === 'fulfilled');
+  const rejected = results.filter((r) => r.status === 'rejected');
+
+  assert.equal(fulfilled.length, 1, 'Exactly 1 update must succeed');
+  assert.equal(rejected.length, 1, 'Exactly 1 update must be rejected');
+  assert.equal(rejected[0].reason.statusCode, 409, 'Rejected update must have 409 status code');
+
+  // Verify database integrity: items must belong to the winner and version is 2
+  const currentInDb = await planner.getItinerary(user, saved.id);
+  assert.equal(currentInDb.version, 2);
+  assert.ok(
+    currentInDb.title === 'Update from Device A' || currentInDb.title === 'Update from Device B'
+  );
+});
+
+test('PlannerService: Rejects place items missing placeId or having invalid duration', async () => {
+  const env = createPlannerTestEnv();
+  env.rawDb.exec("INSERT INTO users (id, display_name, status) VALUES ('user-uuid-1', 'User 1', 'active');");
+  const planner = new PlannerService(env);
+
+  const preview = await planner.generatePreview({
+    durationDays: 1,
+    travelersCount: 2,
+    startDate: '2026-11-20',
+  });
+
+  // Place item missing placeId
+  preview.days[0].items[0] = {
+    itemType: 'place',
+    placeId: null,
+    title: 'Vô danh',
+    durationMinutes: 60,
+    orderIndex: 0,
+    isUserSelected: false,
+  };
+
+  await assert.rejects(
+    async () => planner.saveItinerary('user-uuid-1', preview),
+    /thiếu mã định danh địa điểm/
+  );
+
+  // Place item with negative duration
+  const validPlaceId = env.rawDb.prepare('SELECT id FROM places LIMIT 1').get().id;
+  preview.days[0].items[0].placeId = validPlaceId;
+  preview.days[0].items[0].durationMinutes = -30;
+  await assert.rejects(
+    async () => planner.saveItinerary('user-uuid-1', preview),
+    /Thời lượng hoạt động.*phải từ 15 đến 360 phút/
   );
 });

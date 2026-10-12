@@ -121,11 +121,24 @@ export class PlannerService {
       if (!Array.isArray(day.items)) {
         throw new ValidationError(`Danh sách hoạt động của ngày ${day.dayNumber} không hợp lệ.`, 400);
       }
-      for (const item of day.items) {
-        if (item.itemType === "place" && item.placeId) {
-          if (!placesMap.has(item.placeId)) {
+      for (let idx = 0; idx < day.items.length; idx++) {
+        const item = day.items[idx];
+        if (!item || typeof item !== "object") {
+          throw new ValidationError(`Hoạt động thứ ${idx + 1} của ngày ${day.dayNumber} không hợp lệ.`, 400);
+        }
+        if (item.itemType === "place") {
+          if (!item.placeId || typeof item.placeId !== "string" || !placesMap.has(item.placeId.trim())) {
+            if (!item.placeId || typeof item.placeId !== 'string') {
+            throw new ValidationError(`Hoạt động tham quan '${item.title || idx + 1}' thiếu mã định danh địa điểm (placeId).`, 400);
+          }
+          if (!placesMap.has(item.placeId.trim())) {
             throw new ValidationError(`Địa điểm '${item.placeId}' không tồn tại trong cơ sở dữ liệu.`, 400);
           }
+          }
+        }
+        const durationMin = Number(item.durationMinutes);
+        if (!Number.isInteger(durationMin) || durationMin < 15 || durationMin > 360) {
+          throw new ValidationError(`Thời lượng hoạt động '${item.title || idx + 1}' phải từ 15 đến 360 phút.`, 400);
         }
       }
     }

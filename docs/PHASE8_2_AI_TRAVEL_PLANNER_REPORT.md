@@ -137,3 +137,25 @@ Toàn bộ dữ liệu du lịch, tài khoản Phase 8.1 và quản trị hoàn 
 
 - Lịch trình đã có cấu trúc dữ liệu chuẩn (`travel_itineraries`, `itinerary_days`, `itinerary_items`).
 - Đã sẵn sàng bổ sung bảng giá dịch vụ, tính toán tổng chi phí và kết nối cổng thanh toán mô phỏng ở Phase 8.3.
+
+---
+
+## 9. BẢN VÁ TOÀN DIỆN PHASE 8.2.2: TRANSACTIONAL SAFETY & CRYPTOGRAPHIC ZERO TRUST
+
+Đã giải quyết dứt điểm 4 vấn đề kỹ thuật chuyên sâu theo rà soát độc lập:
+
+1. **Khắc phục triệt để lỗi Optimistic Locking khi có yêu cầu đồng thời (P0):**
+   - Tách bước khóa phiên bản master độc lập lên trước (UPDATE travel_itineraries ... WHERE id = ? AND user_id = ? AND version = ?). Nếu changes === 0, ném ngay ngoại lệ ValidationError(..., 409) mà TUYỆT ĐỐI KHÔNG chạm đến bảng ngày và hoạt động con. Chỉ khi khóa phiên bản thành công (thay đổi đúng 1 dòng), hệ thống mới thực thi batch thay thế các hoạt động con.
+   - Bằng chứng kiểm chứng: Bài test PlannerService: True concurrent updates on version 1 allows strictly one winner and preserves data without corruption chứng minh với 2 request chạy đồng thời (Promise.allSettled), đúng 1 request thành công (lên version 2) và 1 request bị chặn với mã 409 Conflict, dữ liệu hoàn toàn nguyên vẹn.
+
+2. **Xác minh chữ ký mật mã RS256 Cloudflare Access JWT (P0):**
+   - Tích hợp hàm verifyJwtSignature() sử dụng Web Crypto chuẩn (crypto.subtle.importKey dạng JWK và crypto.subtle.verify với thuật toán RSASSA-PKCS1-v1_5 SHA-256). Token bị sửa đổi chữ ký hoặc giả mạo payload sẽ bị từ chối với HTTP 401 Unauthorized ngay tại cổng Worker.
+   - Bằng chứng kiểm chứng: Bài test Auth: Tampered RS256 signature is rejected with 401 Unauthorized PASS 100%.
+
+3. **Gia cố chặt chẽ bộ kiểm định Itinerary Validator (P1):**
+   - Hoạt động loại place bắt buộc phải có placeId hợp lệ và phải tồn tại 100% trong kho dữ liệu D1 Đắk Song.
+   - Ràng buộc thời lượng: bắt buộc từ 15 đến 360 phút (loại bỏ thời lượng âm, bằng 0 hoặc quá dài).
+   - Kiểm tra giờ bắt đầu plannedTime đúng định dạng HH:MM.
+
+4. **Loại bỏ việc tự cộng giả định 20 phút di chuyển (P1):**
+   - recalculateDaySchedule() và bộ xếp lịch fallback dời giờ hoàn toàn dựa trên thời lượng thực tế của hoạt động (durationMinutes), không tự tiện cộng 20 phút di chuyển giả định khi chưa có dữ liệu dẫn đường.

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { encryptApiKey, decryptApiKey } from '../src/utils/crypto.ts';
 import { validateAiEndpoint } from '../src/utils/security-guards.ts';
-import { authenticateAdmin } from '../src/services/admin-auth.service.ts';
+import { authenticateAdmin, setTestJwksProvider } from '../src/services/admin-auth.service.ts';
 import { AdminService } from '../src/services/admin.service.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -69,10 +69,43 @@ function createAdminTestEnv(overrides = {}) {
   };
 }
 
-function createMockJwt(payload) {
-  const header = { alg: 'RS256', typ: 'JWT' };
-  const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
-  return `${b64(header)}.${b64(payload)}.mock-signature`;
+let testRsaKeypair = null;
+let testPublicJwk = null;
+
+async function getTestRsaKeys() {
+  if (!testRsaKeypair) {
+    testRsaKeypair = await crypto.subtle.generateKey(
+      {
+        name: "RSASSA-PKCS1-v1_5",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: "SHA-256",
+      },
+      true,
+      ["sign", "verify"]
+    );
+    testPublicJwk = await crypto.subtle.exportKey("jwk", testRsaKeypair.publicKey);
+    testPublicJwk.kid = "test-access-kid-1";
+    setTestJwksProvider(async () => ({ keys: [testPublicJwk] }));
+  }
+  return testRsaKeypair;
+}
+
+async function createMockJwt(payload, tamperSignature = false) {
+  const keys = await getTestRsaKeys();
+  const header = { alg: "RS256", typ: "JWT", kid: "test-access-kid-1" };
+  const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString("base64url");
+  const data = `${b64(header)}.${b64(payload)}`;
+  const signatureBytes = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    keys.privateKey,
+    new TextEncoder().encode(data)
+  );
+  let sigB64 = Buffer.from(signatureBytes).toString("base64url");
+  if (tamperSignature) {
+    sigB64 = sigB64.slice(0, -6) + "xxxxxx";
+  }
+  return `${data}.${sigB64}`;
 }
 
 // 1. Web Crypto AES-256-GCM Tests
@@ -173,7 +206,7 @@ test('Auth: Dev mock auth permits local testing when ADMIN_DEV_MOCK_AUTH is enab
 
 test('Auth: Valid JWT with matching audience, team, and allowlisted email succeeds', async () => {
   const env = createAdminTestEnv();
-  const token = createMockJwt({
+  const token = await createMockJwt({
     iss: 'https://vna-tourism.cloudflareaccess.com',
     aud: 'aud-test-secret-1234',
     email: 'owner@daksong.vn',
@@ -194,7 +227,7 @@ test('Auth: JWT with un-allowlisted email or expired token is rejected (401/403)
   const env = createAdminTestEnv();
 
   // Non-allowlisted email
-  const tokenBadEmail = createMockJwt({
+  const tokenBadEmail = await createMockJwt({
     iss: 'https://vna-tourism.cloudflareaccess.com',
     aud: 'aud-test-secret-1234',
     email: 'attacker@other.com',
@@ -208,7 +241,7 @@ test('Auth: JWT with un-allowlisted email or expired token is rejected (401/403)
   assert.equal(res1.status, 403);
 
   // Expired token
-  const tokenExpired = createMockJwt({
+  const tokenExpired = await createMockJwt({
     iss: 'https://vna-tourism.cloudflareaccess.com',
     aud: 'aud-test-secret-1234',
     email: 'owner@daksong.vn',
@@ -220,6 +253,28 @@ test('Auth: JWT with un-allowlisted email or expired token is rejected (401/403)
   const res2 = await authenticateAdmin(req2, env);
   assert.equal(res2.authenticated, false);
   assert.equal(res2.status, 401);
+});
+
+test('Auth: Tampered RS256 signature is rejected with 401 Unauthorized', async () => {
+  const env = createAdminTestEnv();
+  const tamperedToken = await createMockJwt(
+    {
+      iss: 'https://vna-tourism.cloudflareaccess.com',
+      aud: 'aud-test-secret-1234',
+      email: 'owner@daksong.vn',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    },
+    true
+  );
+
+  const req = new Request('https://worker.test/api/admin/overview', {
+    headers: { 'cf-access-jwt-assertion': tamperedToken },
+  });
+
+  const res = await authenticateAdmin(req, env);
+  assert.equal(res.authenticated, false);
+  assert.equal(res.status, 401);
+  assert.ok(res.error.includes('Chữ ký'));
 });
 
 // 4. AdminService CRUD, Masking, and Activation Tests
