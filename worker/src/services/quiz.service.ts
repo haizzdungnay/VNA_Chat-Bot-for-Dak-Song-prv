@@ -25,17 +25,117 @@ export interface SubmitAnswerInput {
   selectedOptionId: string;
 }
 
-function getVietnamDateString(): string {
+export interface VietnamDateTime {
+  dateStr: string;
+  timeStr: string;
+}
+
+export function getVietnamDateTime(nowDate = new Date()): VietnamDateTime {
   try {
-    return new Intl.DateTimeFormat("en-CA", {
+    const formatter = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Asia/Ho_Chi_Minh",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
-    }).format(new Date());
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(nowDate);
+    const m: Record<string, string> = {};
+    for (const p of parts) m[p.type] = p.value;
+    const dateStr = `${m.year}-${m.month}-${m.day}`;
+    const hour = m.hour === "24" ? "00" : m.hour;
+    const timeStr = `${hour}:${m.minute}:${m.second}`;
+    return { dateStr, timeStr };
   } catch {
-    return new Date().toISOString().slice(0, 10);
+    const iso = nowDate.toISOString();
+    return { dateStr: iso.slice(0, 10), timeStr: iso.slice(11, 19) };
   }
+}
+
+export function normalizeTimeString(timeStr?: string, defaultTime = "00:00:00"): string {
+  if (!timeStr || typeof timeStr !== "string") return defaultTime;
+  const trimmed = timeStr.trim();
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return defaultTime;
+  const h = match[1].padStart(2, "0");
+  const m = match[2];
+  const s = match[3] ? match[3] : "00";
+  return `${h}:${m}:${s}`;
+}
+
+export type ChallengeEffectiveStatus = "draft" | "scheduled" | "active" | "closed" | "archived";
+
+export function evaluateChallengeSchedule(
+  challenge: {
+    status: string;
+    business_date: string;
+    opening_time?: string;
+    closing_time?: string;
+  },
+  vnNow: VietnamDateTime
+): {
+  effectiveStatus: ChallengeEffectiveStatus;
+  isOpen: boolean;
+  reason?: string;
+} {
+  if (challenge.status === "draft" || challenge.status === "archived") {
+    return {
+      effectiveStatus: challenge.status as ChallengeEffectiveStatus,
+      isOpen: false,
+      reason: "Thử thách chưa được mở hoặc đã lưu trữ.",
+    };
+  }
+
+  if (challenge.status === "closed") {
+    return {
+      effectiveStatus: "closed",
+      isOpen: false,
+      reason: "Thử thách đã đóng.",
+    };
+  }
+
+  if (vnNow.dateStr < challenge.business_date) {
+    return {
+      effectiveStatus: "scheduled",
+      isOpen: false,
+      reason: `Thử thách chưa đến ngày tổ chức (Ngày mở: ${challenge.business_date}).`,
+    };
+  }
+
+  if (vnNow.dateStr > challenge.business_date) {
+    return {
+      effectiveStatus: "closed",
+      isOpen: false,
+      reason: `Thử thách đã kết thúc ngày ${challenge.business_date}.`,
+    };
+  }
+
+  const openTime = normalizeTimeString(challenge.opening_time, "00:00:00");
+  const closeTime = normalizeTimeString(challenge.closing_time, "23:59:59");
+
+  if (vnNow.timeStr < openTime) {
+    return {
+      effectiveStatus: "scheduled",
+      isOpen: false,
+      reason: `Thử thách chưa mở (Thời gian mở: ${openTime}).`,
+    };
+  }
+
+  if (vnNow.timeStr > closeTime) {
+    return {
+      effectiveStatus: "closed",
+      isOpen: false,
+      reason: `Thử thách đã đóng cửa lúc ${closeTime}.`,
+    };
+  }
+
+  return {
+    effectiveStatus: "active",
+    isOpen: true,
+  };
 }
 
 function shuffleArray<T>(arr: T[]): T[] {
@@ -72,17 +172,19 @@ export class QuizService {
   }
 
   async getDailyChallenge(userId?: string): Promise<any | null> {
-    const vnDate = getVietnamDateString();
+    const vnNow = getVietnamDateTime();
     const ch = await this.env.DB.prepare(
       `SELECT ch.*, col.title as collection_title, col.question_count
        FROM quiz_challenges ch
        LEFT JOIN quiz_collections col ON ch.collection_id = col.id
-       WHERE ch.business_date = ? AND ch.status IN ('active', 'scheduled')`
+       WHERE ch.business_date = ?`
     )
-      .bind(vnDate)
+      .bind(vnNow.dateStr)
       .first<any>();
 
     if (!ch) return null;
+
+    const schedule = evaluateChallengeSchedule(ch, vnNow);
 
     let hasAttempted = false;
     let existingAttempt: any = null;
@@ -92,7 +194,7 @@ export class QuizService {
         `SELECT * FROM quiz_attempts
          WHERE user_id = ? AND (challenge_id = ? OR (business_date = ? AND attempt_type = 'daily_challenge'))`
       )
-        .bind(userId, ch.id, vnDate)
+        .bind(userId, ch.id, vnNow.dateStr)
         .first();
 
       if (existingAttempt) {
@@ -105,11 +207,15 @@ export class QuizService {
       title: ch.title,
       description: ch.description,
       businessDate: ch.business_date,
+      openingTime: ch.opening_time,
+      closingTime: ch.closing_time,
       timeLimitSeconds: ch.time_limit_seconds,
       scorePerQuestion: ch.score_per_question,
       questionCount: ch.question_count,
       status: ch.status,
-      isOpen: ch.status === "active",
+      effectiveStatus: schedule.effectiveStatus,
+      isOpen: schedule.isOpen,
+      reason: schedule.reason,
       hasAttempted,
       attemptStatus: existingAttempt?.status || null,
       attemptId: existingAttempt?.id || null,
@@ -126,11 +232,12 @@ export class QuizService {
     let collectionId: string | null = null;
     let businessDate: string | null = null;
     let timeLimitSeconds = 0;
+    let scorePerQuestion = 10;
     let questionsToSnapshot: any[] = [];
 
     if (attemptType === "daily_challenge") {
       if (!input.challengeId) throw new Error("Mã thử thách hàng ngày không được để trống");
-      const vnDate = getVietnamDateString();
+      const vnNow = getVietnamDateTime();
 
       const ch = await this.env.DB.prepare(
         `SELECT * FROM quiz_challenges WHERE id = ?`
@@ -139,11 +246,12 @@ export class QuizService {
         .first<QuizChallengeRow>();
 
       if (!ch) throw new Error("Thử thách hàng ngày không tồn tại");
-      if (ch.status !== "active" && ch.status !== "scheduled") {
-        throw new Error("Thử thách hiện không mở");
-      }
-      if (ch.business_date !== vnDate) {
-        throw new Error("Thử thách chỉ áp dụng cho đúng ngày hôm nay");
+
+      const schedule = evaluateChallengeSchedule(ch, vnNow);
+      if (!schedule.isOpen) {
+        const err: any = new Error(schedule.reason || "Thử thách hiện không mở");
+        err.statusCode = 400;
+        throw err;
       }
 
       // Check existing attempt for user
@@ -151,7 +259,7 @@ export class QuizService {
         `SELECT id, status FROM quiz_attempts
          WHERE user_id = ? AND (challenge_id = ? OR (business_date = ? AND attempt_type = 'daily_challenge'))`
       )
-        .bind(userId, ch.id, vnDate)
+        .bind(userId, ch.id, ch.business_date)
         .first();
 
       if (existing) {
@@ -164,6 +272,9 @@ export class QuizService {
       collectionId = ch.collection_id;
       businessDate = ch.business_date;
       timeLimitSeconds = ch.time_limit_seconds || 0;
+      scorePerQuestion = (Number.isSafeInteger(ch.score_per_question) && ch.score_per_question > 0)
+        ? ch.score_per_question
+        : 10;
 
       // Fetch questions from collection
       const qRes = await this.env.DB.prepare(
@@ -183,6 +294,8 @@ export class QuizService {
       }
     } else {
       // Practice mode
+      scorePerQuestion = 10;
+
       if (input.collectionId) {
         collectionId = input.collectionId;
         const qRes = await this.env.DB.prepare(
@@ -228,8 +341,8 @@ export class QuizService {
     }
 
     const attemptId = "qz-att-" + crypto.randomUUID();
-    const nowIso = new Date().toISOString();
     const expiresAt = timeLimitSeconds > 0 ? new Date(Date.now() + timeLimitSeconds * 1000).toISOString() : null;
+    const maxScore = questionsToSnapshot.length * scorePerQuestion;
 
     // Fetch options for all questions
     const qIds = questionsToSnapshot.map((q) => q.id);
@@ -248,13 +361,13 @@ export class QuizService {
 
     const stmts: any[] = [];
 
-    // 1. Insert attempt
+    // 1. Insert attempt with score_per_question snapshot
     stmts.push(
       this.env.DB.prepare(
         `INSERT INTO quiz_attempts (
           id, user_id, challenge_id, collection_id, attempt_type, business_date,
-          total_questions, status, started_at, expires_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'in_progress', datetime('now'), ?, datetime('now'), datetime('now'))`
+          total_questions, score_per_question, max_score, status, started_at, expires_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', datetime('now'), ?, datetime('now'), datetime('now'))`
       ).bind(
         attemptId,
         userId,
@@ -263,6 +376,8 @@ export class QuizService {
         attemptType,
         businessDate,
         questionsToSnapshot.length,
+        scorePerQuestion,
+        maxScore,
         expiresAt
       )
     );
@@ -333,6 +448,8 @@ export class QuizService {
       attemptId,
       attemptType,
       totalQuestions: questionsToSnapshot.length,
+      scorePerQuestion,
+      maxScore,
       timeLimitSeconds,
       expiresAt,
       questions: clientQuestions,
@@ -362,7 +479,7 @@ export class QuizService {
       throw err;
     }
 
-    // Check expiration if in progress
+    // Check per-attempt expiration if in progress
     if (attempt.status === "in_progress" && attempt.expires_at) {
       if (new Date() > new Date(attempt.expires_at)) {
         await this.finishAttempt(userId, attemptId);
@@ -414,7 +531,6 @@ export class QuizService {
         };
       }
 
-      // Completed / Expired: include correct option and explanation
       return {
         id: aq.id,
         orderIndex: aq.order_index,
@@ -435,7 +551,8 @@ export class QuizService {
       };
     });
 
-    const maxScore = attempt.total_questions * 10;
+    const scorePerQ: number = (typeof attempt.score_per_question === "number" && Number.isSafeInteger(attempt.score_per_question) && attempt.score_per_question > 0) ? attempt.score_per_question : 10;
+    const maxScore = attempt.max_score || (attempt.total_questions * scorePerQ);
     const percentage = maxScore > 0 ? Math.round((attempt.score / maxScore) * 100) : 0;
 
     return {
@@ -446,6 +563,7 @@ export class QuizService {
       status: attempt.status,
       businessDate: attempt.business_date,
       totalQuestions: attempt.total_questions,
+      scorePerQuestion: scorePerQ,
       correctCount: attempt.correct_count,
       incorrectCount: attempt.incorrect_count,
       unansweredCount: attempt.unanswered_count,
@@ -535,8 +653,9 @@ export class QuizService {
       throw err;
     }
 
+    const scorePerQ: number = (typeof attempt.score_per_question === "number" && Number.isSafeInteger(attempt.score_per_question) && attempt.score_per_question > 0) ? attempt.score_per_question : 10;
     const isCorrect = input.selectedOptionId === attQ.correct_option_id ? 1 : 0;
-    const points = isCorrect ? 10 : 0;
+    const points = isCorrect ? scorePerQ : 0;
     const ansId = "ans-" + crypto.randomUUID();
 
     const stmts: any[] = [];
@@ -563,11 +682,33 @@ export class QuizService {
              incorrect_count = incorrect_count + ?,
              score = score + ?,
              updated_at = datetime('now')
-         WHERE id = ?`
+         WHERE id = ? AND status = 'in_progress'`
       ).bind(isCorrect, isCorrect ? 0 : 1, points, attemptId)
     );
 
-    await this.env.DB.batch(stmts);
+    try {
+      await this.env.DB.batch(stmts);
+    } catch (batchErr: any) {
+      if (String(batchErr).includes("UNIQUE constraint failed")) {
+        const recheck = await this.env.DB.prepare(
+          `SELECT * FROM quiz_attempt_answers WHERE attempt_id = ? AND attempt_question_id = ?`
+        )
+          .bind(attemptId, input.attemptQuestionId)
+          .first<QuizAttemptAnswerRow>();
+
+        if (recheck && recheck.selected_option_id === input.selectedOptionId) {
+          return {
+            success: true,
+            alreadyAnswered: true,
+            isCorrect: recheck.is_correct === 1,
+          };
+        }
+        const err: any = new Error("Không thể thay đổi phương án đã nộp");
+        err.statusCode = 409;
+        throw err;
+      }
+      throw batchErr;
+    }
 
     return {
       success: true,
@@ -598,70 +739,89 @@ export class QuizService {
       return await this.getAttempt(userId, attemptId);
     }
 
-    const totalAnswered = attempt.correct_count + attempt.incorrect_count;
-    const unanswered = Math.max(0, attempt.total_questions - totalAnswered);
-    const maxScore = attempt.total_questions * 10;
+    const scorePerQ: number = (typeof attempt.score_per_question === "number" && Number.isSafeInteger(attempt.score_per_question) && attempt.score_per_question > 0) ? attempt.score_per_question : 10;
 
-    // CAS Update
-    await this.env.DB.prepare(
+    // Authoritative calculation of answers from DB
+    const ansSummary = await this.env.DB.prepare(
+      `SELECT
+         COUNT(*) as total_answers,
+         COALESCE(SUM(is_correct), 0) as total_correct,
+         COALESCE(SUM(points), 0) as total_points
+       FROM quiz_attempt_answers WHERE attempt_id = ?`
+    ).bind(attemptId).first<any>();
+
+    const totalAnswered = ansSummary?.total_answers || 0;
+    const correctCount = ansSummary?.total_correct || 0;
+    const incorrectCount = totalAnswered - correctCount;
+    const unanswered = Math.max(0, attempt.total_questions - totalAnswered);
+    const finalScore = ansSummary?.total_points || 0;
+    const maxScore = attempt.total_questions * scorePerQ;
+
+    // CAS Update: Only succeeds if attempt is STILL in_progress
+    const updateRes = await this.env.DB.prepare(
       `UPDATE quiz_attempts
        SET status = 'completed',
+           correct_count = ?,
+           incorrect_count = ?,
            unanswered_count = ?,
+           score = ?,
            max_score = ?,
            completed_at = datetime('now'),
            updated_at = datetime('now')
        WHERE id = ? AND status = 'in_progress'`
     )
-      .bind(unanswered, maxScore, attemptId)
+      .bind(correctCount, incorrectCount, unanswered, finalScore, maxScore, attemptId)
       .run();
 
-    // Update aggregate stats
-    const isDaily = attempt.attempt_type === "daily_challenge" ? 1 : 0;
-    const existingStats = await this.env.DB.prepare(
-      `SELECT * FROM quiz_user_stats WHERE user_id = ?`
-    )
-      .bind(userId)
-      .first<QuizUserStatsRow>();
+    // If CAS won (changes === 1), update aggregate user stats
+    if (updateRes.meta.changes === 1) {
+      const isDaily = attempt.attempt_type === "daily_challenge" ? 1 : 0;
+      const existingStats = await this.env.DB.prepare(
+        `SELECT * FROM quiz_user_stats WHERE user_id = ?`
+      )
+        .bind(userId)
+        .first<QuizUserStatsRow>();
 
-    if (!existingStats) {
-      await this.env.DB.prepare(
-        `INSERT INTO quiz_user_stats (
-          user_id, total_attempts, completed_attempts, daily_challenges_completed,
-          total_score, total_correct, total_questions_answered, best_score, last_attempt_at, updated_at
-        ) VALUES (?, 1, 1, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
-      )
-        .bind(
-          userId,
-          isDaily,
-          attempt.score,
-          attempt.correct_count,
-          totalAnswered,
-          attempt.score
+      if (!existingStats) {
+        await this.env.DB.prepare(
+          `INSERT INTO quiz_user_stats (
+            user_id, total_attempts, completed_attempts, daily_challenges_completed,
+            total_score, total_correct, total_questions_answered, best_score, last_attempt_at, updated_at
+          ) VALUES (?, 1, 1, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
         )
-        .run();
-    } else {
-      await this.env.DB.prepare(
-        `UPDATE quiz_user_stats
-         SET total_attempts = total_attempts + 1,
-             completed_attempts = completed_attempts + 1,
-             daily_challenges_completed = daily_challenges_completed + ?,
-             total_score = total_score + ?,
-             total_correct = total_correct + ?,
-             total_questions_answered = total_questions_answered + ?,
-             best_score = MAX(best_score, ?),
-             last_attempt_at = datetime('now'),
-             updated_at = datetime('now')
-         WHERE user_id = ?`
-      )
-        .bind(
-          isDaily,
-          attempt.score,
-          attempt.correct_count,
-          totalAnswered,
-          attempt.score,
-          userId
+          .bind(
+            userId,
+            isDaily,
+            finalScore,
+            correctCount,
+            totalAnswered,
+            finalScore
+          )
+          .run();
+      } else {
+        await this.env.DB.prepare(
+          `UPDATE quiz_user_stats
+           SET total_attempts = total_attempts + 1,
+               completed_attempts = completed_attempts + 1,
+               daily_challenges_completed = daily_challenges_completed + ?,
+               total_score = total_score + ?,
+               total_correct = total_correct + ?,
+               total_questions_answered = total_questions_answered + ?,
+               best_score = MAX(best_score, ?),
+               last_attempt_at = datetime('now'),
+               updated_at = datetime('now')
+           WHERE user_id = ?`
         )
-        .run();
+          .bind(
+            isDaily,
+            finalScore,
+            correctCount,
+            totalAnswered,
+            finalScore,
+            userId
+          )
+          .run();
+      }
     }
 
     return await this.getAttempt(userId, attemptId);

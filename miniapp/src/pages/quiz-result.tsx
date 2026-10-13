@@ -168,7 +168,7 @@ const QuizResultPage: React.FC = () => {
                   color: q.isCorrect ? "#16a34a" : "#dc2626",
                 }}
               >
-                {q.isCorrect ? "+10 điểm" : "0 điểm"}
+                {q.isCorrect ? "+" + (q.points || attempt.scorePerQuestion || 10) + " điểm" : "0 điểm"}
               </span>
             </div>
 

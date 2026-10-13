@@ -1,3 +1,15 @@
+
+function normalizeTimeString(timeStr?: string, defaultTime = "00:00:00"): string {
+  if (!timeStr || typeof timeStr !== "string") return defaultTime;
+  const trimmed = timeStr.trim();
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return defaultTime;
+  const h = match[1].padStart(2, "0");
+  const m = match[2];
+  const s = match[3] ? match[3] : "00";
+  return `${h}:${m}:${s}`;
+}
+
 import type {
   Env,
   QuestionType,
@@ -690,11 +702,28 @@ export class AdminQuizService {
       throw new Error(`Đã tồn tại thử thách ngày ${input.business_date}. Mỗi ngày chỉ có 01 thử thách chính thức.`);
     }
 
+    const openingTime = normalizeTimeString(input.opening_time, "00:00:00");
+    const closingTime = normalizeTimeString(input.closing_time, "23:59:59");
+
+    if (openingTime >= closingTime) {
+      throw new Error(`Khung giờ không hợp lệ: Thời gian mở (${openingTime}) phải trước thời gian đóng (${closingTime}).`);
+    }
+
+    if (input.score_per_question !== undefined) {
+      if (!Number.isSafeInteger(input.score_per_question) || input.score_per_question < 1 || input.score_per_question > 1000) {
+        throw new Error("Điểm mỗi câu phải là số nguyên dương từ 1 đến 1000.");
+      }
+    }
+    const scorePerQ = input.score_per_question !== undefined ? input.score_per_question : 10;
+
+    if (input.time_limit_seconds !== undefined) {
+      if (!Number.isSafeInteger(input.time_limit_seconds) || input.time_limit_seconds < 0 || input.time_limit_seconds > 86400) {
+        throw new Error("Thời gian làm bài phải là số nguyên không âm (giây) tối đa 24 giờ.");
+      }
+    }
+    const timeLimit = input.time_limit_seconds !== undefined ? input.time_limit_seconds : 300;
+
     const id = "ch-" + input.business_date;
-    const openingTime = input.opening_time || "00:00:00";
-    const closingTime = input.closing_time || "23:59:59";
-    const timeLimit = Math.max(0, input.time_limit_seconds || 300);
-    const scorePerQ = Math.max(1, input.score_per_question || 10);
     const status = input.status || "active";
 
     await this.env.DB.prepare(

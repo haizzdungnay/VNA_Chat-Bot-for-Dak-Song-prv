@@ -36,13 +36,12 @@ const REPO_ROOT = path.resolve(__dirname, '../..');
 
 function createQuizTestEnv(overrides = {}) {
   const db = new DatabaseSync(':memory:');
-  for (let i = 1; i <= 11; i++) {
-    const pad = String(i).padStart(4, '0');
-    const files = fs.readdirSync(path.join(REPO_ROOT, 'worker/migrations')).filter(f => f.startsWith(pad));
-    if (files.length > 0) {
-      const sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations', files[0]), 'utf8');
-      db.exec(sql);
-    }
+  const migrationFiles = fs.readdirSync(path.join(REPO_ROOT, 'worker/migrations'))
+    .filter(f => f.endsWith('.sql'))
+    .sort();
+  for (const file of migrationFiles) {
+    const sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations', file), 'utf8');
+    db.exec(sql);
   }
 
   // Test users
@@ -561,4 +560,244 @@ test('HTTP Router E2E: Full tourist and admin API lifecycle', async () => {
   assert.equal(adminAnalyticsRes.status, 200);
   const adminData = await adminAnalyticsRes.json();
   assert.equal(adminData.kpis.completedAttempts, 1);
+});
+
+
+// =============================================================================
+// PHASE 8.4.1 P1-01: SERVER-AUTHORITATIVE CONFIGURABLE SCORING TESTS
+// =============================================================================
+test('P1-01: Challenge with nondefault score (20 pts) snapshots immutably, awards 20 pts per correct, and preserves history', async () => {
+  const env = createQuizTestEnv();
+  const quizService = new QuizService(env);
+  const adminService = new AdminQuizService(env);
+  const vnToday = getVnToday();
+
+  // 1. Admin creates collection with 3 questions
+  const col = await adminService.createCollection({
+    title: 'Bộ đề 20 Điểm',
+    selection_mode: 'manual',
+    question_ids: ['qz-q-001', 'qz-q-002', 'qz-q-003'],
+  }, 'admin@vna.vn');
+
+  // 2. Set up challenge with score_per_question = 20
+  const chId = 'ch-' + vnToday;
+  await env.DB.prepare(
+    `UPDATE quiz_challenges SET score_per_question = 20, collection_id = ? WHERE business_date = ?`
+  ).bind(col.id, vnToday).run();
+
+  // 3. User Alice starts challenge
+  const startResult = await quizService.startAttempt('user-alice', {
+    attemptType: 'daily_challenge',
+    challengeId: chId,
+  });
+
+  assert.equal(startResult.scorePerQuestion, 20, 'Attempt must snapshot challenge score_per_question = 20');
+  assert.equal(startResult.maxScore, 60, 'Max score must be 3 * 20 = 60');
+
+  // Verify DB record has score_per_question = 20
+  const dbAttempt = await env.DB.prepare(
+    'SELECT score_per_question, max_score FROM quiz_attempts WHERE id = ?'
+  ).bind(startResult.attemptId).first();
+  assert.equal(dbAttempt.score_per_question, 20);
+  assert.equal(dbAttempt.max_score, 60);
+
+  // 4. Alice answers question 1: correct answer
+  const q1 = startResult.questions[0];
+  const q1Detail = await env.DB.prepare(
+    'SELECT correct_option_id FROM quiz_attempt_questions WHERE id = ?'
+  ).bind(q1.id).first();
+
+  const ans1 = await quizService.submitAnswer('user-alice', startResult.attemptId, {
+    attemptQuestionId: q1.id,
+    selectedOptionId: q1Detail.correct_option_id,
+  });
+  assert.equal(ans1.success, true);
+
+  // Check stored answer points = 20
+  const ansRow = await env.DB.prepare(
+    'SELECT points, is_correct FROM quiz_attempt_answers WHERE attempt_id = ? AND attempt_question_id = ?'
+  ).bind(startResult.attemptId, q1.id).first();
+  assert.equal(ansRow.is_correct, 1);
+  assert.equal(ansRow.points, 20, 'Correct answer must be awarded 20 points');
+
+  // 5. Alice answers question 2: incorrect answer
+  const q2 = startResult.questions[1];
+  const wrongOpt = q2.options.find(o => o.id !== q1Detail.correct_option_id) || q2.options[0];
+  await quizService.submitAnswer('user-alice', startResult.attemptId, {
+    attemptQuestionId: q2.id,
+    selectedOptionId: 'wrong-opt-id',
+  }).catch(() => {
+    // If option validity enforced, pick valid incorrect option
+    const validWrong = q2.options[1].id;
+    return quizService.submitAnswer('user-alice', startResult.attemptId, {
+      attemptQuestionId: q2.id,
+      selectedOptionId: validWrong,
+    });
+  });
+
+  // 6. Finish attempt
+  const finishRes = await quizService.finishAttempt('user-alice', startResult.attemptId);
+  assert.equal(finishRes.status, 'completed');
+  assert.equal(finishRes.scorePerQuestion, 20);
+  assert.equal(finishRes.maxScore, 60);
+  assert.ok(finishRes.score >= 20);
+
+  // 7. Historical immutability test:
+  // Admin subsequently changes challenge score_per_question to 50 in DB
+  await env.DB.prepare(
+    'UPDATE quiz_challenges SET score_per_question = 50 WHERE id = ?'
+  ).bind(chId).run();
+
+  // Query Alice finished attempt again: It MUST RETAIN 20 points per question and original score!
+  const reloaded = await quizService.getAttempt('user-alice', startResult.attemptId);
+  assert.equal(reloaded.scorePerQuestion, 20, 'Historical attempt score_per_question must NOT change');
+  assert.equal(reloaded.maxScore, 60, 'Historical max_score must NOT change');
+  assert.equal(reloaded.score, finishRes.score, 'Historical score must remain identical');
+
+  // Double finalize on same attempt returns identical score without double counting stats
+  const statsBefore = await quizService.getUserStats('user-alice');
+  const doubleFinish = await quizService.finishAttempt('user-alice', startResult.attemptId);
+  const statsAfter = await quizService.getUserStats('user-alice');
+  assert.equal(doubleFinish.score, finishRes.score);
+  assert.equal(statsAfter.totalAttempts, statsBefore.totalAttempts, 'Stats must not double-increment');
+});
+
+test('P1-01: Legacy attempt compatibility defaults safely to 10 points', async () => {
+  const env = createQuizTestEnv();
+  const quizService = new QuizService(env);
+
+  // Directly insert legacy attempt with NULL score_per_question (simulating pre-0012 migration)
+  const legacyId = 'qz-att-legacy-001';
+  await env.DB.prepare(
+    `INSERT INTO quiz_attempts (
+      id, user_id, attempt_type, total_questions, correct_count, incorrect_count, unanswered_count,
+      score, max_score, status, started_at, created_at, updated_at
+    ) VALUES (?, 'user-alice', 'practice', 5, 3, 2, 0, 30, 50, 'completed', datetime('now'), datetime('now'), datetime('now'))`
+  ).bind(legacyId).run();
+
+  const legacyAttempt = await quizService.getAttempt('user-alice', legacyId);
+  assert.equal(legacyAttempt.scorePerQuestion, 10, 'Legacy attempt without snapshot must default to 10');
+  assert.equal(legacyAttempt.maxScore, 50);
+  assert.equal(legacyAttempt.score, 30);
+  assert.equal(legacyAttempt.percentage, 60);
+});
+
+// =============================================================================
+// PHASE 8.4.1 P1-02: DAILY CHALLENGE SCHEDULE ENFORCEMENT TESTS
+// =============================================================================
+test('P1-02: Daily challenge schedule strictly enforces opening/closing time window in Asia/Ho_Chi_Minh', async () => {
+  const env = createQuizTestEnv();
+  const quizService = new QuizService(env);
+  const adminService = new AdminQuizService(env);
+  const vnToday = getVnToday();
+
+  // Helper function to evaluate schedule with mock VN time
+  const { evaluateChallengeSchedule } = await import('../src/services/quiz.service.ts');
+
+  const testChallenge = {
+    status: 'scheduled',
+    business_date: vnToday,
+    opening_time: '08:00:00',
+    closing_time: '22:00:00',
+  };
+
+  // Case 1: Before opening time (07:30:00) -> scheduled, isOpen = false
+  const resBefore = evaluateChallengeSchedule(testChallenge, { dateStr: vnToday, timeStr: '07:30:00' });
+  assert.equal(resBefore.isOpen, false);
+  assert.equal(resBefore.effectiveStatus, 'scheduled');
+  assert.ok(resBefore.reason.includes('08:00:00'));
+
+  // Case 2: Exact opening time (08:00:00) -> active, isOpen = true
+  const resExactOpen = evaluateChallengeSchedule(testChallenge, { dateStr: vnToday, timeStr: '08:00:00' });
+  assert.equal(resExactOpen.isOpen, true);
+  assert.equal(resExactOpen.effectiveStatus, 'active');
+
+  // Case 3: Middle of day (14:30:00) -> active, isOpen = true
+  const resMiddle = evaluateChallengeSchedule(testChallenge, { dateStr: vnToday, timeStr: '14:30:00' });
+  assert.equal(resMiddle.isOpen, true);
+  assert.equal(resMiddle.effectiveStatus, 'active');
+
+  // Case 4: Exact closing time (22:00:00) -> active, isOpen = true
+  const resExactClose = evaluateChallengeSchedule(testChallenge, { dateStr: vnToday, timeStr: '22:00:00' });
+  assert.equal(resExactClose.isOpen, true);
+  assert.equal(resExactClose.effectiveStatus, 'active');
+
+  // Case 5: After closing time (22:00:01) -> closed, isOpen = false
+  const resAfter = evaluateChallengeSchedule(testChallenge, { dateStr: vnToday, timeStr: '22:00:01' });
+  assert.equal(resAfter.isOpen, false);
+  assert.equal(resAfter.effectiveStatus, 'closed');
+  assert.ok(resAfter.reason.includes('22:00:00'));
+
+  // Case 6: Wrong business date (yesterday or tomorrow)
+  const resYesterday = evaluateChallengeSchedule(testChallenge, { dateStr: '2026-10-10', timeStr: '12:00:00' });
+  assert.equal(resYesterday.isOpen, false);
+
+  // Case 7: Admin validation rejects opening >= closing
+  await assert.rejects(
+    () => adminService.createChallenge({
+      title: 'Khung giờ nghịch đảo',
+      business_date: '2026-12-01',
+      collection_id: 'col-dak-song-intro',
+      opening_time: '22:00:00',
+      closing_time: '08:00:00', // Invalid: closing before opening
+    }, 'admin@vna.vn'),
+    /Khung giờ không hợp lệ/
+  );
+
+  // Case 8: Admin validation rejects invalid score_per_question
+  await assert.rejects(
+    () => adminService.createChallenge({
+      title: 'Điểm âm',
+      business_date: '2026-12-02',
+      collection_id: 'col-dak-song-intro',
+      score_per_question: -10,
+    }, 'admin@vna.vn'),
+    /Điểm mỗi câu phải là số nguyên dương/
+  );
+
+  await assert.rejects(
+    () => adminService.createChallenge({
+      title: 'Điểm phân số',
+      business_date: '2026-12-03',
+      collection_id: 'col-dak-song-intro',
+      score_per_question: 15.5,
+    }, 'admin@vna.vn'),
+    /Điểm mỗi câu phải là số nguyên dương/
+  );
+});
+
+test('P1-02: Ongoing attempt preservation allows finishing after challenge closing time passes', async () => {
+  const env = createQuizTestEnv();
+  const quizService = new QuizService(env);
+  const vnToday = getVnToday();
+
+  // Create challenge first with status closed
+  const chClosedId = 'ch-closed-test';
+  await env.DB.prepare(
+    `INSERT INTO quiz_challenges (
+      id, title, business_date, collection_id, opening_time, closing_time, status
+    ) VALUES (?, 'Thử thách đã đóng', ?, 'col-dak-song-intro', '08:00:00', '09:00:00', 'closed')
+    ON CONFLICT(business_date) DO UPDATE SET status = 'closed'`
+  ).bind(chClosedId, '2026-11-20').run();
+
+  // Attempt that was legitimately started before closing
+  const attId = 'att-ongoing-test';
+  const expiresFuture = new Date(Date.now() + 600 * 1000).toISOString();
+
+  await env.DB.prepare(
+    `INSERT INTO quiz_attempts (
+      id, user_id, challenge_id, attempt_type, business_date, total_questions, score_per_question,
+      max_score, status, started_at, expires_at, created_at, updated_at
+    ) VALUES (?, 'user-alice', ?, 'daily_challenge', '2026-11-20', 1, 10, 10, 'in_progress', datetime('now'), ?, datetime('now'), datetime('now'))`
+  ).bind(attId, chClosedId, expiresFuture).run();
+
+  await env.DB.prepare(
+    `INSERT INTO quiz_attempt_questions (
+      id, attempt_id, question_id, order_index, question_text, question_type, explanation, options_json, correct_option_id
+    ) VALUES ('att-q-test', ?, 'qz-q-001', 1, 'Câu hỏi test', 'single_choice', 'Giải thích', '[]', 'opt-1')`
+  ).bind(attId).run();
+
+  // Alice can still submit and finish her already started ongoing attempt!
+  const finishRes = await quizService.finishAttempt('user-alice', attId);
+  assert.equal(finishRes.status, 'completed', 'Ongoing in-progress attempt must be allowed to complete');
 });

@@ -592,6 +592,7 @@ export interface QuizAttemptRow {
   attempt_type: AttemptType;
   business_date: string | null;
   total_questions: number;
+  score_per_question?: number;
   correct_count: number;
   incorrect_count: number;
   unanswered_count: number;

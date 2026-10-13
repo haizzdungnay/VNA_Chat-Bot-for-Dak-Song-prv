@@ -256,6 +256,12 @@ const QuizHomePage: React.FC = () => {
               stars
             </span>
             <span>{daily?.scorePerQuestion || 10} điểm/câu</span>
+          {daily?.openingTime && daily?.closingTime && (
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>schedule</span>
+              <span>{daily.openingTime.slice(0, 5)} - {daily.closingTime.slice(0, 5)}</span>
+            </div>
+          )}
           </div>
         </div>
 
@@ -304,13 +310,13 @@ const QuizHomePage: React.FC = () => {
               justifyContent: "center",
               gap: 8,
             }}
-            disabled={startingDaily}
+            disabled={startingDaily || !daily?.isOpen}
             onClick={handleStartDaily}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 20 }}>
               play_arrow
             </span>
-            <span>{startingDaily ? "Đang chuẩn bị đề thi..." : "Bắt đầu Thử thách ngay"}</span>
+            <span>{startingDaily ? "Đang chuẩn bị đề thi..." : !daily?.isOpen ? (daily?.reason || "Thử thách chưa mở") : "Bắt đầu Thử thách ngay"}</span>
           </button>
         )}
       </section>

@@ -374,7 +374,7 @@ const QuizPlayPage: React.FC = () => {
               color: answeredState.isCorrect ? "#16a34a" : "#dc2626",
             }}
           >
-            {answeredState.isCorrect ? "Chính xác! Bạn được cộng 10 điểm." : "Chưa chính xác! Xem giải thích ở kết quả cuối bài."}
+            {answeredState.isCorrect ? "Chính xác! Bạn được cộng " + (attempt?.scorePerQuestion || 10) + " điểm." : "Chưa chính xác! Xem giải thích ở kết quả cuối bài."}
           </span>
         </div>
       )}

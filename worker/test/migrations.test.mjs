@@ -20,6 +20,7 @@ const m8Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0008_busin
 const m9Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0009_booking_transaction_hardening.sql'), 'utf8');
 const m10Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0010_historical_refund_reconciliation.sql'), 'utf8');
 const m11Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0011_tourism_quiz.sql'), 'utf8');
+const m12Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0012_quiz_scoring_and_schedule.sql'), 'utf8');
 
 test('Fresh migration path: 0001 -> 0002 -> 0003 applies cleanly and verifies 100% integrity', () => {
   const db = new DatabaseSync(':memory:');
@@ -245,6 +246,31 @@ test('Fresh migration 0011_tourism_quiz: creates quiz tables and initial seed ad
   assert.equal(fkViolations.length, 0, 'Zero foreign key violations after 0011');
 });
 
+
+test('Fresh migration 0012_quiz_scoring_and_schedule: adds score_per_question column additively', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(m1Sql);
+  db.exec(m2Sql);
+  db.exec(m3Sql);
+  db.exec(m4Sql);
+  db.exec(m5Sql);
+  db.exec(m6Sql);
+  db.exec(m7Sql);
+  db.exec(m8Sql);
+  db.exec(m9Sql);
+  db.exec(m10Sql);
+  db.exec(m11Sql);
+
+  assert.doesNotThrow(() => db.exec(m12Sql), '0012_quiz_scoring_and_schedule.sql should execute cleanly');
+
+  const columns = db.prepare('PRAGMA table_info(quiz_attempts)').all();
+  const hasScorePerQ = columns.some((c) => c.name === 'score_per_question');
+  assert.equal(hasScorePerQ, true, 'quiz_attempts has score_per_question column');
+
+  const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+  assert.equal(fkViolations.length, 0, 'Zero foreign key violations after 0012');
+});
+
 test('Preexisting database upgrade path: upgrades safely without data loss to 0006', () => {
   const db = new DatabaseSync(':memory:');
   db.exec(m1Sql);
@@ -261,6 +287,7 @@ test('Preexisting database upgrade path: upgrades safely without data loss to 00
   assert.doesNotThrow(() => db.exec(m9Sql), '0009 must upgrade preexisting DB cleanly');
   assert.doesNotThrow(() => db.exec(m10Sql), '0010 must upgrade preexisting DB cleanly');
   assert.doesNotThrow(() => db.exec(m11Sql), '0011 must upgrade preexisting DB cleanly');
+  assert.doesNotThrow(() => db.exec(m12Sql), '0012 must upgrade preexisting DB cleanly');
 
   const customPlace = db.prepare("SELECT * FROM places WHERE id = 'custom-preexist'").get();
   assert.ok(customPlace, 'Custom pre-existing record must be preserved');

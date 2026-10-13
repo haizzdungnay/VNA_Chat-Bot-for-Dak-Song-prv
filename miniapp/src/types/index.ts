@@ -291,11 +291,15 @@ export interface QuizDailyChallenge {
   title: string;
   description?: string | null;
   businessDate: string;
+  openingTime?: string;
+  closingTime?: string;
+  effectiveStatus?: string;
   timeLimitSeconds: number;
   scorePerQuestion: number;
   questionCount: number;
   status: string;
   isOpen: boolean;
+  reason?: string;
   hasAttempted: boolean;
   attemptStatus?: string | null;
   attemptId?: string | null;
@@ -341,6 +345,7 @@ export interface QuizAttemptDetail {
   unansweredCount: number;
   score: number;
   maxScore: number;
+  scorePerQuestion?: number;
   percentage: number;
   startedAt: string;
   expiresAt?: string | null;

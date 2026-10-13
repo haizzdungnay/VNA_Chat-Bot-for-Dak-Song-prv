@@ -32,6 +32,8 @@ export const QuizChallengesPage: React.FC<QuizChallengesPageProps> = ({ onNotify
   const [chColId, setChColId] = useState("");
   const [chTimeLimit, setChTimeLimit] = useState(300);
   const [chScorePerQ, setChScorePerQ] = useState(10);
+  const [chOpeningTime, setChOpeningTime] = useState("00:00");
+  const [chClosingTime, setChClosingTime] = useState("23:59");
   const [chSubmitting, setChSubmitting] = useState(false);
 
   // Collection Modal
@@ -97,6 +99,8 @@ export const QuizChallengesPage: React.FC<QuizChallengesPageProps> = ({ onNotify
         collection_id: chColId,
         time_limit_seconds: Number(chTimeLimit) || 300,
         score_per_question: Number(chScorePerQ) || 10,
+        opening_time: chOpeningTime ? chOpeningTime + ":00" : "00:00:00",
+        closing_time: chClosingTime ? chClosingTime + ":59" : "23:59:59",
         status: "active",
       });
       onNotify?.("success", "Đã tạo thử thách ngày " + chDate);
@@ -385,6 +389,29 @@ export const QuizChallengesPage: React.FC<QuizChallengesPageProps> = ({ onNotify
                 </select>
               </div>
 
+              
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+                <div>
+                  <label className="label">Giờ mở cửa *</label>
+                  <input
+                    type="time"
+                    className="input"
+                    value={chOpeningTime}
+                    onChange={(e) => setChOpeningTime(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="label">Giờ đóng cửa *</label>
+                  <input
+                    type="time"
+                    className="input"
+                    value={chClosingTime}
+                    onChange={(e) => setChClosingTime(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
                 <div>
                   <label className="label">Thời gian làm bài (giây)</label>
