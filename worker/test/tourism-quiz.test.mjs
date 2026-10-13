@@ -801,3 +801,110 @@ test('P1-02: Ongoing attempt preservation allows finishing after challenge closi
   const finishRes = await quizService.finishAttempt('user-alice', attId);
   assert.equal(finishRes.status, 'completed', 'Ongoing in-progress attempt must be allowed to complete');
 });
+
+
+// =============================================================================
+// PHASE 8.4.2 TRANSACTION INTEGRITY & FAILURE INJECTION TESTS
+// =============================================================================
+test('Phase 8.4.2: Injected failure in finishAttempt batch causes full rollback without inconsistent partial state', async () => {
+  const env = createQuizTestEnv();
+  const quizService = new QuizService(env);
+
+  const startRes = await quizService.startAttempt('user-alice', {
+    attemptType: 'practice',
+    questionCount: 2,
+  });
+
+  const attId = startRes.attemptId;
+
+  // Answer 1 question
+  const q1 = startRes.questions[0];
+  await quizService.submitAnswer('user-alice', attId, {
+    attemptQuestionId: q1.id,
+    selectedOptionId: q1.options[0].id,
+  });
+
+  // Intercept DB.batch to inject artificial mid-batch failure on stats statement
+  const originalBatch = env.DB.batch.bind(env.DB);
+  let batchAttempts = 0;
+  env.DB.batch = async (statements) => {
+    batchAttempts++;
+    if (batchAttempts === 1) {
+      // Injected failure mid-batch!
+      throw new Error('Simulated D1 engine mid-batch hardware crash');
+    }
+    return originalBatch(statements);
+  };
+
+  // Attempt finish: must fail or catch cleanly without partial update
+  const finishResult = await quizService.finishAttempt('user-alice', attId).catch(err => err);
+  assert.ok(finishResult instanceof Error, 'Injected crash must throw');
+
+  // Verify that because batch threw, attempt status in DB remains 'in_progress'
+  const inDb = await env.DB.prepare('SELECT status, completed_at FROM quiz_attempts WHERE id = ?').bind(attId).first();
+  assert.equal(inDb.status, 'in_progress', 'Attempt must remain in_progress when batch fails (full rollback)');
+  assert.equal(inDb.completed_at, null);
+
+  // Stats in DB must NOT have been created or incremented
+  const statsInDb = await env.DB.prepare('SELECT * FROM quiz_user_stats WHERE user_id = ?').bind('user-alice').first();
+  assert.ok(!statsInDb, 'User stats must NOT be written when batch fails');
+
+  // Restore original batch and retry finishAttempt: Must now succeed cleanly!
+  env.DB.batch = originalBatch;
+  const retryFinish = await quizService.finishAttempt('user-alice', attId);
+  assert.equal(retryFinish.status, 'completed');
+
+  const afterRetryDb = await env.DB.prepare('SELECT status FROM quiz_attempts WHERE id = ?').bind(attId).first();
+  assert.equal(afterRetryDb.status, 'completed');
+
+  const afterStats = await env.DB.prepare('SELECT completed_attempts FROM quiz_user_stats WHERE user_id = ?').bind('user-alice').first();
+  assert.equal(afterStats.completed_attempts, 1);
+});
+
+test('Phase 8.4.2: Submitting answer to already finalized attempt is blocked and rolled back by optimistic guard', async () => {
+  const env = createQuizTestEnv();
+  const quizService = new QuizService(env);
+
+  const startRes = await quizService.startAttempt('user-alice', {
+    attemptType: 'practice',
+    questionCount: 2,
+  });
+  const attId = startRes.attemptId;
+
+  // Finalize attempt directly
+  await quizService.finishAttempt('user-alice', attId);
+
+  // Now attempt to submit answer to completed attempt
+  const q1 = startRes.questions[0];
+  await assert.rejects(
+    () => quizService.submitAnswer('user-alice', attId, {
+      attemptQuestionId: q1.id,
+      selectedOptionId: q1.options[0].id,
+    }),
+    (err) => err.statusCode === 400 && err.message.includes('Bài thi đã kết thúc')
+  );
+
+  // Confirm 0 answers were inserted
+  const ansCount = await env.DB.prepare('SELECT count(*) as count FROM quiz_attempt_answers WHERE attempt_id = ?').bind(attId).first();
+  assert.equal(ansCount.count, 0, 'No answer rows must be committed to completed attempt');
+});
+
+test('Phase 8.4.2: reconcileUserStats reconciles stats deterministically from authoritative completed attempts', async () => {
+  const env = createQuizTestEnv();
+  const quizService = new QuizService(env);
+
+  // User Alice completes 2 practice attempts
+  const att1 = await quizService.startAttempt('user-alice', { attemptType: 'practice', questionCount: 1 });
+  await quizService.finishAttempt('user-alice', att1.attemptId);
+
+  const att2 = await quizService.startAttempt('user-alice', { attemptType: 'practice', questionCount: 1 });
+  await quizService.finishAttempt('user-alice', att2.attemptId);
+
+  // Tamper with stats table (e.g. corrupt or out-of-sync state)
+  await env.DB.prepare('UPDATE quiz_user_stats SET completed_attempts = 999, total_score = 9999 WHERE user_id = ?').bind('user-alice').run();
+
+  // Run reconciliation
+  const reconciled = await quizService.reconcileUserStats('user-alice');
+  assert.equal(reconciled.completedAttempts, 2, 'Reconciliation must restore exact completed attempts count (2)');
+  assert.ok(reconciled.totalScore < 100, 'Reconciliation must restore truthful total score');
+});

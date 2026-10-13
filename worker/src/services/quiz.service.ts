@@ -583,7 +583,7 @@ export class QuizService {
     }
 
     const attempt = await this.env.DB.prepare(
-      `SELECT * FROM quiz_attempts WHERE id = ?`
+      "SELECT * FROM quiz_attempts WHERE id = ?"
     )
       .bind(attemptId)
       .first<QuizAttemptRow>();
@@ -606,7 +606,7 @@ export class QuizService {
       throw err;
     }
 
-    if (attempt.expires_at && new Date() > new Date(attempt.expires_at)) {
+    if (attempt.expires_at && new Date() >= new Date(attempt.expires_at)) {
       await this.finishAttempt(userId, attemptId);
       const err: any = new Error("Thời gian làm bài đã kết thúc");
       err.statusCode = 400;
@@ -615,7 +615,7 @@ export class QuizService {
 
     // Verify question belongs to attempt
     const attQ = await this.env.DB.prepare(
-      `SELECT * FROM quiz_attempt_questions WHERE id = ? AND attempt_id = ?`
+      "SELECT * FROM quiz_attempt_questions WHERE id = ? AND attempt_id = ?"
     )
       .bind(input.attemptQuestionId, attemptId)
       .first<QuizAttemptQuestionRow>();
@@ -633,9 +633,9 @@ export class QuizService {
       throw new Error("Phương án trả lời không tồn tại trong danh sách lựa chọn");
     }
 
-    // Check already answered
+    // Pre-read check for existing answer
     const existingAns = await this.env.DB.prepare(
-      `SELECT * FROM quiz_attempt_answers WHERE attempt_id = ? AND attempt_question_id = ?`
+      "SELECT * FROM quiz_attempt_answers WHERE attempt_id = ? AND attempt_question_id = ?"
     )
       .bind(attemptId, input.attemptQuestionId)
       .first<QuizAttemptAnswerRow>();
@@ -645,7 +645,7 @@ export class QuizService {
         return {
           success: true,
           alreadyAnswered: true,
-          isCorrect: existingAns.is_correct === 1,
+          answeredAt: existingAns.answered_at,
         };
       }
       const err: any = new Error("Không thể thay đổi phương án đã nộp");
@@ -653,17 +653,16 @@ export class QuizService {
       throw err;
     }
 
-    const scorePerQ: number = (typeof attempt.score_per_question === "number" && Number.isSafeInteger(attempt.score_per_question) && attempt.score_per_question > 0) ? attempt.score_per_question : 10;
+    const scorePerQ: number = (typeof attempt.score_per_question === "number" && Number.isSafeInteger(attempt.score_per_question) && attempt.score_per_question > 0)
+      ? attempt.score_per_question
+      : 10;
     const isCorrect = input.selectedOptionId === attQ.correct_option_id ? 1 : 0;
     const points = isCorrect ? scorePerQ : 0;
     const ansId = "ans-" + crypto.randomUUID();
 
-    const stmts: any[] = [];
-
-    stmts.push(
+    const stmts: any[] = [
       this.env.DB.prepare(
-        `INSERT INTO quiz_attempt_answers (id, attempt_id, attempt_question_id, question_id, selected_option_id, is_correct, points, answered_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        "INSERT INTO quiz_attempt_answers (id, attempt_id, attempt_question_id, question_id, selected_option_id, is_correct, points, answered_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))"
       ).bind(
         ansId,
         attemptId,
@@ -672,39 +671,44 @@ export class QuizService {
         input.selectedOptionId,
         isCorrect,
         points
-      )
-    );
+      ),
 
-    stmts.push(
       this.env.DB.prepare(
-        `UPDATE quiz_attempts
-         SET correct_count = correct_count + ?,
-             incorrect_count = incorrect_count + ?,
-             score = score + ?,
-             updated_at = datetime('now')
-         WHERE id = ? AND status = 'in_progress'`
-      ).bind(isCorrect, isCorrect ? 0 : 1, points, attemptId)
-    );
+        "UPDATE quiz_attempts SET correct_count = correct_count + ?, incorrect_count = incorrect_count + ?, score = score + ?, updated_at = datetime('now') WHERE id = ? AND status = 'in_progress'"
+      ).bind(isCorrect, isCorrect ? 0 : 1, points, attemptId),
+
+      this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"),
+      this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1")
+    ];
 
     try {
       await this.env.DB.batch(stmts);
     } catch (batchErr: any) {
-      if (String(batchErr).includes("UNIQUE constraint failed")) {
-        const recheck = await this.env.DB.prepare(
-          `SELECT * FROM quiz_attempt_answers WHERE attempt_id = ? AND attempt_question_id = ?`
-        )
-          .bind(attemptId, input.attemptQuestionId)
-          .first<QuizAttemptAnswerRow>();
+      const recheck = await this.env.DB.prepare(
+        "SELECT * FROM quiz_attempt_answers WHERE attempt_id = ? AND attempt_question_id = ?"
+      )
+        .bind(attemptId, input.attemptQuestionId)
+        .first<QuizAttemptAnswerRow>();
 
-        if (recheck && recheck.selected_option_id === input.selectedOptionId) {
+      if (recheck) {
+        if (recheck.selected_option_id === input.selectedOptionId) {
           return {
             success: true,
             alreadyAnswered: true,
-            isCorrect: recheck.is_correct === 1,
+            answeredAt: recheck.answered_at,
           };
         }
         const err: any = new Error("Không thể thay đổi phương án đã nộp");
         err.statusCode = 409;
+        throw err;
+      }
+
+      const currentAtt = await this.env.DB.prepare(
+        "SELECT status FROM quiz_attempts WHERE id = ?"
+      ).bind(attemptId).first<any>();
+      if (currentAtt && currentAtt.status !== "in_progress") {
+        const err: any = new Error("Bài thi đã kết thúc, không thể nộp thêm câu trả lời");
+        err.statusCode = 400;
         throw err;
       }
       throw batchErr;
@@ -718,7 +722,7 @@ export class QuizService {
 
   async finishAttempt(userId: string, attemptId: string): Promise<any> {
     const attempt = await this.env.DB.prepare(
-      `SELECT * FROM quiz_attempts WHERE id = ?`
+      "SELECT * FROM quiz_attempts WHERE id = ?"
     )
       .bind(attemptId)
       .first<QuizAttemptRow>();
@@ -739,15 +743,12 @@ export class QuizService {
       return await this.getAttempt(userId, attemptId);
     }
 
-    const scorePerQ: number = (typeof attempt.score_per_question === "number" && Number.isSafeInteger(attempt.score_per_question) && attempt.score_per_question > 0) ? attempt.score_per_question : 10;
+    const scorePerQ: number = (typeof attempt.score_per_question === "number" && Number.isSafeInteger(attempt.score_per_question) && attempt.score_per_question > 0)
+      ? attempt.score_per_question
+      : 10;
 
-    // Authoritative calculation of answers from DB
     const ansSummary = await this.env.DB.prepare(
-      `SELECT
-         COUNT(*) as total_answers,
-         COALESCE(SUM(is_correct), 0) as total_correct,
-         COALESCE(SUM(points), 0) as total_points
-       FROM quiz_attempt_answers WHERE attempt_id = ?`
+      "SELECT COUNT(*) as total_answers, COALESCE(SUM(is_correct), 0) as total_correct, COALESCE(SUM(points), 0) as total_points FROM quiz_attempt_answers WHERE attempt_id = ?"
     ).bind(attemptId).first<any>();
 
     const totalAnswered = ansSummary?.total_answers || 0;
@@ -756,75 +757,66 @@ export class QuizService {
     const unanswered = Math.max(0, attempt.total_questions - totalAnswered);
     const finalScore = ansSummary?.total_points || 0;
     const maxScore = attempt.total_questions * scorePerQ;
+    const isDaily = attempt.attempt_type === "daily_challenge" ? 1 : 0;
 
-    // CAS Update: Only succeeds if attempt is STILL in_progress
-    const updateRes = await this.env.DB.prepare(
-      `UPDATE quiz_attempts
-       SET status = 'completed',
-           correct_count = ?,
-           incorrect_count = ?,
-           unanswered_count = ?,
-           score = ?,
-           max_score = ?,
-           completed_at = datetime('now'),
-           updated_at = datetime('now')
-       WHERE id = ? AND status = 'in_progress'`
-    )
-      .bind(correctCount, incorrectCount, unanswered, finalScore, maxScore, attemptId)
-      .run();
+    const finishStatements: any[] = [
+      this.env.DB.prepare(
+        "UPDATE quiz_attempts SET status = 'completed', correct_count = ?, incorrect_count = ?, unanswered_count = ?, score = ?, max_score = ?, completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND status = 'in_progress'"
+      ).bind(correctCount, incorrectCount, unanswered, finalScore, maxScore, attemptId),
 
-    // If CAS won (changes === 1), update aggregate user stats
-    if (updateRes.meta.changes === 1) {
-      const isDaily = attempt.attempt_type === "daily_challenge" ? 1 : 0;
-      const existingStats = await this.env.DB.prepare(
-        `SELECT * FROM quiz_user_stats WHERE user_id = ?`
-      )
-        .bind(userId)
-        .first<QuizUserStatsRow>();
+      this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"),
 
-      if (!existingStats) {
-        await this.env.DB.prepare(
-          `INSERT INTO quiz_user_stats (
-            user_id, total_attempts, completed_attempts, daily_challenges_completed,
-            total_score, total_correct, total_questions_answered, best_score, last_attempt_at, updated_at
-          ) VALUES (?, 1, 1, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
-        )
-          .bind(
-            userId,
-            isDaily,
-            finalScore,
-            correctCount,
-            totalAnswered,
-            finalScore
-          )
-          .run();
-      } else {
-        await this.env.DB.prepare(
-          `UPDATE quiz_user_stats
-           SET total_attempts = total_attempts + 1,
-               completed_attempts = completed_attempts + 1,
-               daily_challenges_completed = daily_challenges_completed + ?,
-               total_score = total_score + ?,
-               total_correct = total_correct + ?,
-               total_questions_answered = total_questions_answered + ?,
-               best_score = MAX(best_score, ?),
-               last_attempt_at = datetime('now'),
-               updated_at = datetime('now')
-           WHERE user_id = ?`
-        )
-          .bind(
-            isDaily,
-            finalScore,
-            correctCount,
-            totalAnswered,
-            finalScore,
-            userId
-          )
-          .run();
+      this.env.DB.prepare(
+        "INSERT INTO quiz_user_stats (user_id, total_attempts, completed_attempts, daily_challenges_completed, total_score, total_correct, total_questions_answered, best_score, last_attempt_at, updated_at) VALUES (?, 1, 1, ?, ?, ?, ?, ?, datetime('now'), datetime('now')) ON CONFLICT(user_id) DO UPDATE SET total_attempts = quiz_user_stats.total_attempts + 1, completed_attempts = quiz_user_stats.completed_attempts + 1, daily_challenges_completed = quiz_user_stats.daily_challenges_completed + excluded.daily_challenges_completed, total_score = quiz_user_stats.total_score + excluded.total_score, total_correct = quiz_user_stats.total_correct + excluded.total_correct, total_questions_answered = quiz_user_stats.total_questions_answered + excluded.total_questions_answered, best_score = MAX(quiz_user_stats.best_score, excluded.best_score), last_attempt_at = datetime('now'), updated_at = datetime('now')"
+      ).bind(userId, isDaily, finalScore, correctCount, totalAnswered, finalScore),
+
+      this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1")
+    ];
+
+    try {
+      await this.env.DB.batch(finishStatements);
+    } catch (batchErr) {
+      const current = await this.env.DB.prepare(
+        "SELECT status FROM quiz_attempts WHERE id = ?"
+      ).bind(attemptId).first<any>();
+      if (current && current.status !== "in_progress") {
+        return await this.getAttempt(userId, attemptId);
       }
+      throw batchErr;
     }
 
     return await this.getAttempt(userId, attemptId);
+  }
+
+  async reconcileUserStats(userId: string): Promise<any> {
+    const agg = await this.env.DB.prepare(
+      "SELECT COUNT(*) as total_attempts, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_attempts, SUM(CASE WHEN status = 'completed' AND attempt_type = 'daily_challenge' THEN 1 ELSE 0 END) as daily_challenges_completed, COALESCE(SUM(CASE WHEN status = 'completed' THEN score ELSE 0 END), 0) as total_score, COALESCE(SUM(CASE WHEN status = 'completed' THEN correct_count ELSE 0 END), 0) as total_correct, COALESCE(SUM(CASE WHEN status = 'completed' THEN (correct_count + incorrect_count) ELSE 0 END), 0) as total_questions_answered, COALESCE(MAX(CASE WHEN status = 'completed' THEN score ELSE 0 END), 0) as best_score, MAX(started_at) as last_attempt_at FROM quiz_attempts WHERE user_id = ?"
+    ).bind(userId).first<any>();
+
+    const totalAttempts = agg?.total_attempts || 0;
+    const completedAttempts = agg?.completed_attempts || 0;
+    const dailyCompleted = agg?.daily_challenges_completed || 0;
+    const totalScore = agg?.total_score || 0;
+    const totalCorrect = agg?.total_correct || 0;
+    const totalAnswered = agg?.total_questions_answered || 0;
+    const bestScore = agg?.best_score || 0;
+    const lastAttemptAt = agg?.last_attempt_at || null;
+
+    await this.env.DB.prepare(
+      "INSERT INTO quiz_user_stats (user_id, total_attempts, completed_attempts, daily_challenges_completed, total_score, total_correct, total_questions_answered, best_score, last_attempt_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) ON CONFLICT(user_id) DO UPDATE SET total_attempts = excluded.total_attempts, completed_attempts = excluded.completed_attempts, daily_challenges_completed = excluded.daily_challenges_completed, total_score = excluded.total_score, total_correct = excluded.total_correct, total_questions_answered = excluded.total_questions_answered, best_score = excluded.best_score, last_attempt_at = excluded.last_attempt_at, updated_at = datetime('now')"
+    ).bind(
+      userId,
+      totalAttempts,
+      completedAttempts,
+      dailyCompleted,
+      totalScore,
+      totalCorrect,
+      totalAnswered,
+      bestScore,
+      lastAttemptAt
+    ).run();
+
+    return await this.getUserStats(userId);
   }
 
   async getUserHistory(userId: string, page = 1, limit = 20): Promise<any> {

@@ -100,8 +100,8 @@ export class IdentityService {
     ) {
       return {
         valid: true,
-        zaloId: "mock-zalo-user-1",
-        name: "Du khách thử nghiệm",
+        zaloId: accessToken.length > 5 ? ("mock-" + accessToken.replace(/[^a-zA-Z0-9_-]/g, "")) : "mock-zalo-user-1",
+        name: "Du khách " + (accessToken.replace(/^mock_/, "") || "thử nghiệm"),
         picture: "https://static.dggv.edu.vn/360/1682416281765_IMG20190809101005.jpg",
       };
     }
