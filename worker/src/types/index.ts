@@ -505,3 +505,141 @@ export interface IdempotencyRecordRow {
   response_json: string | null;
   created_at: string;
 }
+
+// Phase 8.4 Tourism Quiz & Daily Challenge Types
+export type QuestionType = "single_choice" | "true_false";
+export type QuestionDifficulty = "easy" | "medium" | "hard";
+export type QuestionStatus = "draft" | "published" | "archived";
+export type SourceType = "place" | "article" | "manual";
+export type ChallengeStatus = "draft" | "scheduled" | "active" | "closed" | "archived";
+export type AttemptType = "daily_challenge" | "practice";
+export type AttemptStatus = "in_progress" | "completed" | "expired" | "abandoned";
+
+export interface QuizCategoryRow {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface QuizQuestionRow {
+  id: string;
+  code: string;
+  question_type: QuestionType;
+  category_id: string;
+  difficulty: QuestionDifficulty;
+  question_text: string;
+  explanation: string;
+  source_type: SourceType;
+  source_reference: string | null;
+  related_place_id: string | null;
+  related_article_id: string | null;
+  image_url: string | null;
+  status: QuestionStatus;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface QuizQuestionOptionRow {
+  id: string;
+  question_id: string;
+  option_key: string;
+  option_text: string;
+  is_correct: number;
+  order_index: number;
+  created_at: string;
+}
+
+export interface QuizCollectionRow {
+  id: string;
+  title: string;
+  description: string | null;
+  category_id: string | null;
+  difficulty: "easy" | "medium" | "hard" | "mixed" | null;
+  selection_mode: "manual" | "auto";
+  question_count: number;
+  status: "draft" | "published" | "archived";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface QuizChallengeRow {
+  id: string;
+  title: string;
+  description: string | null;
+  business_date: string;
+  collection_id: string;
+  opening_time: string;
+  closing_time: string;
+  time_limit_seconds: number;
+  score_per_question: number;
+  max_attempts: number;
+  status: ChallengeStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface QuizAttemptRow {
+  id: string;
+  user_id: string;
+  challenge_id: string | null;
+  collection_id: string | null;
+  attempt_type: AttemptType;
+  business_date: string | null;
+  total_questions: number;
+  correct_count: number;
+  incorrect_count: number;
+  unanswered_count: number;
+  score: number;
+  max_score: number;
+  status: AttemptStatus;
+  started_at: string;
+  expires_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface QuizAttemptQuestionRow {
+  id: string;
+  attempt_id: string;
+  question_id: string;
+  order_index: number;
+  question_text: string;
+  question_type: QuestionType;
+  category_name: string | null;
+  difficulty: string | null;
+  explanation: string;
+  options_json: string;
+  correct_option_id: string;
+  created_at: string;
+}
+
+export interface QuizAttemptAnswerRow {
+  id: string;
+  attempt_id: string;
+  attempt_question_id: string;
+  question_id: string;
+  selected_option_id: string;
+  is_correct: number;
+  points: number;
+  answered_at: string;
+}
+
+export interface QuizUserStatsRow {
+  user_id: string;
+  total_attempts: number;
+  completed_attempts: number;
+  daily_challenges_completed: number;
+  total_score: number;
+  total_correct: number;
+  total_questions_answered: number;
+  best_score: number;
+  last_attempt_at: string | null;
+  updated_at: string;
+}

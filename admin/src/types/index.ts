@@ -79,7 +79,7 @@ export interface SystemOverview {
   } | null;
 }
 
-export type AdminTab = "overview" | "revenue" | "tours" | "services" | "bookings" | "visitors" | "profiles" | "logs" | "settings";
+export type AdminTab = "overview" | "revenue" | "tours" | "services" | "bookings" | "quiz_questions" | "quiz_challenges" | "quiz_analytics" | "visitors" | "profiles" | "logs" | "settings";
 
 
 
@@ -212,4 +212,117 @@ export interface RevenueAnalyticsData {
   categoryDistribution: { category: string; count: number; totalAmount: number }[];
   statusDistribution: { status: string; count: number }[];
   topProducts: { name: string; type: "tour" | "service"; bookedCount: number; revenue: number }[];
+}
+
+
+// Phase 8.4 Tourism Quiz & Daily Challenge Types
+export type QuestionType = "single_choice" | "true_false";
+export type QuestionDifficulty = "easy" | "medium" | "hard";
+export type QuestionStatus = "draft" | "published" | "archived";
+export type SourceType = "place" | "article" | "manual";
+export type ChallengeStatus = "draft" | "scheduled" | "active" | "closed" | "archived";
+
+export interface AdminQuizOption {
+  id?: string;
+  option_key: string;
+  option_text: string;
+  is_correct: number | boolean;
+  order_index?: number;
+}
+
+export interface AdminQuizQuestion {
+  id: string;
+  code: string;
+  question_type: QuestionType;
+  category_id: string;
+  category_name?: string;
+  category_slug?: string;
+  difficulty: QuestionDifficulty;
+  question_text: string;
+  explanation: string;
+  source_type: SourceType;
+  source_reference?: string | null;
+  related_place_id?: string | null;
+  related_place_name?: string | null;
+  related_article_id?: string | null;
+  related_article_title?: string | null;
+  image_url?: string | null;
+  status: QuestionStatus;
+  version: number;
+  options: AdminQuizOption[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminQuizCategory {
+  id: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+  icon?: string | null;
+  is_active: number;
+}
+
+export interface AdminQuizCollection {
+  id: string;
+  title: string;
+  description?: string | null;
+  category_id?: string | null;
+  category_name?: string | null;
+  difficulty?: string | null;
+  selection_mode: "manual" | "auto";
+  question_count: number;
+  status: "draft" | "published" | "archived";
+  questions?: AdminQuizQuestion[];
+  created_at: string;
+}
+
+export interface AdminQuizChallenge {
+  id: string;
+  title: string;
+  description?: string | null;
+  business_date: string;
+  collection_id: string;
+  collection_title?: string;
+  question_count?: number;
+  opening_time: string;
+  closing_time: string;
+  time_limit_seconds: number;
+  score_per_question: number;
+  max_attempts: number;
+  status: ChallengeStatus;
+  created_at: string;
+}
+
+export interface AdminQuizAnalytics {
+  kpis: {
+    totalPublishedQuestions: number;
+    draftQuestions: number;
+    archivedQuestions: number;
+    activeChallenges: number;
+    totalAttempts: number;
+    completedAttempts: number;
+    uniqueParticipants: number;
+    averageScore: number;
+    accuracyRate: number;
+    completionRate: number;
+  };
+  questionQuality: {
+    id: string;
+    code: string;
+    questionText: string;
+    categoryName?: string;
+    difficulty: string;
+    status: string;
+    attemptsCount: number;
+    correctCount: number;
+    incorrectCount: number;
+    accuracyRate: number;
+  }[];
+  dailyTrends: {
+    date: string;
+    attemptsCount: number;
+    completedCount: number;
+    avgScore: number;
+  }[];
 }

@@ -282,6 +282,52 @@ const HomePage: React.FC = () => {
         </span>
       </section>
 
+            {/* 3.6. Tourism Quiz & Daily Challenge Banner */}
+      <section
+        style={{
+          borderRadius: "var(--radius-lg, 16px)",
+          padding: "14px 16px",
+          background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
+          color: "#ffffff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          boxShadow: "0 4px 12px rgba(124, 58, 237, 0.25)",
+          cursor: "pointer",
+        }}
+        onClick={() => navigate("/quiz")}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: "50%",
+              backgroundColor: "rgba(255, 255, 255, 0.2)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 24, color: "#ffffff" }}>
+              quiz
+            </span>
+          </div>
+          <div>
+            <h4 style={{ fontSize: 15, fontWeight: 700, margin: 0, color: "#ffffff" }}>
+              Thử thách Du lịch Đắk Song
+            </h4>
+            <p style={{ fontSize: 12, margin: "2px 0 0 0", color: "rgba(255, 255, 255, 0.9)" }}>
+              Trắc nghiệm kiến thức, văn hóa & rinh điểm thưởng
+            </p>
+          </div>
+        </div>
+        <span className="material-symbols-outlined" style={{ fontSize: 22, color: "#ffffff" }}>
+          chevron_right
+        </span>
+      </section>
+
       {/* 4. AI Travel Assistant CTA Banner */}
       <section className="ai-cta-card">
         <div className="ai-accent-bar" />

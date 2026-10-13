@@ -1,3 +1,37 @@
+
+import {
+  quizCategoriesRoute,
+  quizCollectionsRoute,
+  quizDailyRoute,
+  quizStartAttemptRoute,
+  quizGetAttemptRoute,
+  quizSubmitAnswerRoute,
+  quizFinishAttemptRoute,
+  quizHistoryRoute,
+  quizStatsRoute,
+} from "./routes/quiz";
+import {
+  adminQuizCategoriesListRoute,
+  adminQuizQuestionsListRoute,
+  adminQuizQuestionDetailRoute,
+  adminQuizQuestionCreateRoute,
+  adminQuizQuestionUpdateRoute,
+  adminQuizQuestionPublishRoute,
+  adminQuizQuestionArchiveRoute,
+  adminQuizQuestionRestoreRoute,
+  adminQuizQuestionDuplicateRoute,
+  adminQuizCollectionsListRoute,
+  adminQuizCollectionDetailRoute,
+  adminQuizCollectionCreateRoute,
+  adminQuizChallengesListRoute,
+  adminQuizChallengeDetailRoute,
+  adminQuizChallengeCreateRoute,
+  adminQuizChallengePublishRoute,
+  adminQuizChallengeCloseRoute,
+  adminQuizAnalyticsRoute,
+  adminQuizAttemptsListRoute,
+  adminQuizExportRoute,
+} from "./routes/admin-quiz";
 import type { Env } from "./types";
 import { Router } from "./utils/router";
 import { optionsResponse, errorResponse } from "./utils/response";
@@ -137,6 +171,40 @@ router.post("/api/admin/bookings/:id/mock-refund", adminBookingMockRefundRoute);
 router.post("/api/admin/bookings/:id/refund", adminBookingMockRefundRoute);
 router.get("/api/admin/revenue/analytics", adminRevenueAnalyticsRoute);
 router.get("/api/admin/revenue/export", adminRevenueExportRoute);
+
+// Phase 8.4 Quiz Routes (Tourist)
+router.get("/api/quiz/categories", quizCategoriesRoute);
+router.get("/api/quiz/collections", quizCollectionsRoute);
+router.get("/api/quiz/daily", quizDailyRoute);
+router.post("/api/quiz/attempts", quizStartAttemptRoute);
+router.get("/api/quiz/attempts/:id", quizGetAttemptRoute);
+router.post("/api/quiz/attempts/:id/answers", quizSubmitAnswerRoute);
+router.post("/api/quiz/attempts/:id/finish", quizFinishAttemptRoute);
+router.get("/api/quiz/history", quizHistoryRoute);
+router.get("/api/quiz/stats", quizStatsRoute);
+
+// Phase 8.4 Admin Quiz Routes
+router.get("/api/admin/quiz/categories", adminQuizCategoriesListRoute);
+router.get("/api/admin/quiz/questions", adminQuizQuestionsListRoute);
+router.get("/api/admin/quiz/questions/:id", adminQuizQuestionDetailRoute);
+router.post("/api/admin/quiz/questions", adminQuizQuestionCreateRoute);
+router.put("/api/admin/quiz/questions/:id", adminQuizQuestionUpdateRoute);
+router.post("/api/admin/quiz/questions/:id/publish", adminQuizQuestionPublishRoute);
+router.post("/api/admin/quiz/questions/:id/archive", adminQuizQuestionArchiveRoute);
+router.post("/api/admin/quiz/questions/:id/restore", adminQuizQuestionRestoreRoute);
+router.post("/api/admin/quiz/questions/:id/duplicate", adminQuizQuestionDuplicateRoute);
+router.get("/api/admin/quiz/collections", adminQuizCollectionsListRoute);
+router.get("/api/admin/quiz/collections/:id", adminQuizCollectionDetailRoute);
+router.post("/api/admin/quiz/collections", adminQuizCollectionCreateRoute);
+router.get("/api/admin/quiz/challenges", adminQuizChallengesListRoute);
+router.get("/api/admin/quiz/challenges/:id", adminQuizChallengeDetailRoute);
+router.post("/api/admin/quiz/challenges", adminQuizChallengeCreateRoute);
+router.post("/api/admin/quiz/challenges/:id/publish", adminQuizChallengePublishRoute);
+router.post("/api/admin/quiz/challenges/:id/close", adminQuizChallengeCloseRoute);
+router.get("/api/admin/quiz/analytics", adminQuizAnalyticsRoute);
+router.get("/api/admin/quiz/attempts", adminQuizAttemptsListRoute);
+router.get("/api/admin/quiz/export", adminQuizExportRoute);
+
 
 
 const MAX_DEFAULT_BYTES = 10 * 1024; // 10 KB limit for general endpoints

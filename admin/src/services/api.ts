@@ -12,7 +12,12 @@ import type {
   AdminBookingItem,
   AdminBookingDetail,
   RevenueAnalyticsData,
-  PricingMode,
+    PricingMode,
+  AdminQuizQuestion,
+  AdminQuizCategory,
+  AdminQuizCollection,
+  AdminQuizChallenge,
+  AdminQuizAnalytics,
 } from "../types";
 
 export class AdminApiError extends Error {
@@ -243,5 +248,139 @@ export const adminApi = {
     if (startDate) params.set("startDate", startDate);
     if (endDate) params.set("endDate", endDate);
     return `${getApiBaseUrl()}/api/admin/revenue/export?${params.toString()}`;
+  },
+
+  // ==================== PHASE 8.4 QUIZ API ====================
+  getQuizCategories(): Promise<{ categories: AdminQuizCategory[] }> {
+    return request<{ categories: AdminQuizCategory[] }>("/api/admin/quiz/categories");
+  },
+
+  getQuizQuestions(filters?: {
+    keyword?: string;
+    categoryId?: string;
+    difficulty?: string;
+    questionType?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ questions: AdminQuizQuestion[]; total: number; page: number; limit: number }> {
+    const params = new URLSearchParams();
+    if (filters?.keyword) params.set("keyword", filters.keyword);
+    if (filters?.categoryId) params.set("categoryId", filters.categoryId);
+    if (filters?.difficulty) params.set("difficulty", filters.difficulty);
+    if (filters?.questionType) params.set("questionType", filters.questionType);
+    if (filters?.status) params.set("status", filters.status);
+    if (filters?.page) params.set("page", String(filters.page));
+    if (filters?.limit) params.set("limit", String(filters.limit));
+    return request<{ questions: AdminQuizQuestion[]; total: number; page: number; limit: number }>(
+      "/api/admin/quiz/questions?" + params.toString()
+    );
+  },
+
+  getQuizQuestion(id: string): Promise<{ question: AdminQuizQuestion }> {
+    return request<{ question: AdminQuizQuestion }>("/api/admin/quiz/questions/" + encodeURIComponent(id));
+  },
+
+  createQuizQuestion(input: any): Promise<{ question: AdminQuizQuestion }> {
+    return request<{ question: AdminQuizQuestion }>("/api/admin/quiz/questions", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  updateQuizQuestion(id: string, input: any): Promise<{ question: AdminQuizQuestion }> {
+    return request<{ question: AdminQuizQuestion }>("/api/admin/quiz/questions/" + encodeURIComponent(id), {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+  },
+
+  publishQuizQuestion(id: string): Promise<{ question: AdminQuizQuestion }> {
+    return request<{ question: AdminQuizQuestion }>("/api/admin/quiz/questions/" + encodeURIComponent(id) + "/publish", {
+      method: "POST",
+    });
+  },
+
+  archiveQuizQuestion(id: string): Promise<{ question: AdminQuizQuestion }> {
+    return request<{ question: AdminQuizQuestion }>("/api/admin/quiz/questions/" + encodeURIComponent(id) + "/archive", {
+      method: "POST",
+    });
+  },
+
+  restoreQuizQuestion(id: string): Promise<{ question: AdminQuizQuestion }> {
+    return request<{ question: AdminQuizQuestion }>("/api/admin/quiz/questions/" + encodeURIComponent(id) + "/restore", {
+      method: "POST",
+    });
+  },
+
+  duplicateQuizQuestion(id: string): Promise<{ question: AdminQuizQuestion }> {
+    return request<{ question: AdminQuizQuestion }>("/api/admin/quiz/questions/" + encodeURIComponent(id) + "/duplicate", {
+      method: "POST",
+    });
+  },
+
+  getQuizCollections(): Promise<{ collections: AdminQuizCollection[] }> {
+    return request<{ collections: AdminQuizCollection[] }>("/api/admin/quiz/collections");
+  },
+
+  getQuizCollection(id: string): Promise<{ collection: AdminQuizCollection }> {
+    return request<{ collection: AdminQuizCollection }>("/api/admin/quiz/collections/" + encodeURIComponent(id));
+  },
+
+  createQuizCollection(input: any): Promise<{ collection: AdminQuizCollection }> {
+    return request<{ collection: AdminQuizCollection }>("/api/admin/quiz/collections", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  getQuizChallenges(): Promise<{ challenges: AdminQuizChallenge[] }> {
+    return request<{ challenges: AdminQuizChallenge[] }>("/api/admin/quiz/challenges");
+  },
+
+  getQuizChallenge(id: string): Promise<{ challenge: AdminQuizChallenge }> {
+    return request<{ challenge: AdminQuizChallenge }>("/api/admin/quiz/challenges/" + encodeURIComponent(id));
+  },
+
+  createQuizChallenge(input: any): Promise<{ challenge: AdminQuizChallenge }> {
+    return request<{ challenge: AdminQuizChallenge }>("/api/admin/quiz/challenges", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  publishQuizChallenge(id: string): Promise<{ challenge: AdminQuizChallenge }> {
+    return request<{ challenge: AdminQuizChallenge }>("/api/admin/quiz/challenges/" + encodeURIComponent(id) + "/publish", {
+      method: "POST",
+    });
+  },
+
+  closeQuizChallenge(id: string): Promise<{ challenge: AdminQuizChallenge }> {
+    return request<{ challenge: AdminQuizChallenge }>("/api/admin/quiz/challenges/" + encodeURIComponent(id) + "/close", {
+      method: "POST",
+    });
+  },
+
+  getQuizAnalytics(startDate?: string, endDate?: string): Promise<AdminQuizAnalytics> {
+    const params = new URLSearchParams();
+    if (startDate) params.set("startDate", startDate);
+    if (endDate) params.set("endDate", endDate);
+    return request<AdminQuizAnalytics>("/api/admin/quiz/analytics?" + params.toString());
+  },
+
+  getQuizAttempts(filters?: { challengeId?: string; status?: string; page?: number; limit?: number }): Promise<any> {
+    const params = new URLSearchParams();
+    if (filters?.challengeId) params.set("challengeId", filters.challengeId);
+    if (filters?.status) params.set("status", filters.status);
+    if (filters?.page) params.set("page", String(filters.page));
+    if (filters?.limit) params.set("limit", String(filters.limit));
+    return request<any>("/api/admin/quiz/attempts?" + params.toString());
+  },
+
+  getQuizExportUrl(startDate?: string, endDate?: string): string {
+    const params = new URLSearchParams();
+    if (startDate) params.set("startDate", startDate);
+    if (endDate) params.set("endDate", endDate);
+    return getApiBaseUrl() + "/api/admin/quiz/export?" + params.toString();
   },
 };

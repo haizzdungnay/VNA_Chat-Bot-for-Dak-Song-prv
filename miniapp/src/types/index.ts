@@ -266,3 +266,95 @@ export interface MockPaymentResult {
   transactionReference: string;
   message: string;
 }
+
+// Phase 8.4 Quiz & Daily Challenge Types
+export interface QuizCategory {
+  id: string;
+  slug: string;
+  name: string;
+  description?: string | null;
+  icon?: string | null;
+}
+
+export interface QuizCollection {
+  id: string;
+  title: string;
+  description?: string | null;
+  category_id?: string | null;
+  category_name?: string | null;
+  difficulty?: string | null;
+  question_count: number;
+}
+
+export interface QuizDailyChallenge {
+  id: string;
+  title: string;
+  description?: string | null;
+  businessDate: string;
+  timeLimitSeconds: number;
+  scorePerQuestion: number;
+  questionCount: number;
+  status: string;
+  isOpen: boolean;
+  hasAttempted: boolean;
+  attemptStatus?: string | null;
+  attemptId?: string | null;
+  score?: number | null;
+  maxScore?: number | null;
+}
+
+export interface QuizOptionItem {
+  id: string;
+  key: string;
+  text: string;
+}
+
+export interface QuizAttemptQuestionItem {
+  id: string;
+  orderIndex: number;
+  questionText: string;
+  questionType: "single_choice" | "true_false";
+  categoryName?: string;
+  difficulty?: string;
+  options: QuizOptionItem[];
+  selectedOptionId?: string | null;
+  correctOptionId?: string;
+  isCorrect?: boolean;
+  points?: number;
+  explanation?: string;
+  relatedPlaceId?: string | null;
+  relatedPlaceName?: string | null;
+  relatedArticleId?: string | null;
+  relatedArticleTitle?: string | null;
+}
+
+export interface QuizAttemptDetail {
+  id: string;
+  attemptType: "daily_challenge" | "practice";
+  challengeTitle?: string;
+  collectionTitle?: string;
+  status: "in_progress" | "completed" | "expired" | "abandoned";
+  businessDate?: string;
+  totalQuestions: number;
+  correctCount: number;
+  incorrectCount: number;
+  unansweredCount: number;
+  score: number;
+  maxScore: number;
+  percentage: number;
+  startedAt: string;
+  expiresAt?: string | null;
+  completedAt?: string | null;
+  questions: QuizAttemptQuestionItem[];
+}
+
+export interface QuizUserStats {
+  totalAttempts: number;
+  completedAttempts: number;
+  dailyChallengesCompleted: number;
+  totalScore: number;
+  totalCorrect: number;
+  totalQuestionsAnswered: number;
+  bestScore: number;
+  lastAttemptAt?: string | null;
+}

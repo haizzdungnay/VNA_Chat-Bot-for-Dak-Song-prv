@@ -21,6 +21,10 @@ import { RevenuePage } from "./pages/RevenuePage";
 import { ToursPage } from "./pages/ToursPage";
 import { ServicesPage } from "./pages/ServicesPage";
 import { BookingsPage } from "./pages/BookingsPage";
+import { QuizQuestionsPage } from "./pages/QuizQuestionsPage";
+import { QuizChallengesPage } from "./pages/QuizChallengesPage";
+import { QuizAnalyticsPage } from "./pages/QuizAnalyticsPage";
+
 
 export const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<AdminTab>("revenue");
@@ -186,6 +190,12 @@ export const App: React.FC = () => {
           {currentTab === "tours" && <ToursPage onNotify={addToast} />}
           {currentTab === "services" && <ServicesPage onNotify={addToast} />}
           {currentTab === "bookings" && <BookingsPage onNotify={addToast} />}
+
+          {/* Phase 8.4 Quiz & Interactive Modules */}
+          {currentTab === "quiz_questions" && <QuizQuestionsPage onNotify={addToast} />}
+          {currentTab === "quiz_challenges" && <QuizChallengesPage onNotify={addToast} />}
+          {currentTab === "quiz_analytics" && <QuizAnalyticsPage onNotify={addToast} />}
+
 
           {/* System & AI Modules */}
           {currentTab === "overview" && (

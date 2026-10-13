@@ -64,6 +64,41 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span>Quản lý Đơn đặt</span>
         </button>
 
+        
+        <div
+          style={{
+            padding: "16px 16px 4px",
+            fontSize: 11,
+            fontWeight: 700,
+            color: "#94a3b8",
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+          }}
+        >
+          TRÒ CHƠI & TƯƠNG TÁC
+        </div>
+
+        <button
+          className={"nav-item " + (currentTab === "quiz_questions" ? "active" : "")}
+          onClick={() => onSelectTab("quiz_questions")}
+        >
+          <span>Ngân hàng câu hỏi</span>
+        </button>
+
+        <button
+          className={"nav-item " + (currentTab === "quiz_challenges" ? "active" : "")}
+          onClick={() => onSelectTab("quiz_challenges")}
+        >
+          <span>Bộ đề & Thử thách</span>
+        </button>
+
+        <button
+          className={"nav-item " + (currentTab === "quiz_analytics" ? "active" : "")}
+          onClick={() => onSelectTab("quiz_analytics")}
+        >
+          <span>Kết quả & Thống kê</span>
+        </button>
+
         <div
           style={{
             padding: "16px 16px 4px",
@@ -116,7 +151,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       <div className="sidebar-footer">
-        <div><strong>Phase 8.3</strong> — Business & Operations</div>
+        <div><strong>Phase 8.4</strong> — Tourism Quiz & Daily Challenge</div>
         <div style={{ marginTop: 4, color: "#64748b" }}>Single-Admin Protected</div>
       </div>
     </aside>

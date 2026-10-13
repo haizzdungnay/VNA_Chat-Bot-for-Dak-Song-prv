@@ -14,7 +14,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   const currentPath = location.pathname;
   // Place detail is immersive, no bottom nav
-  const isPlaceDetail = currentPath.startsWith("/place/");
+  const isPlaceDetail = currentPath.startsWith("/place/") || currentPath.startsWith("/quiz/play");
   const showBottomNav = !isPlaceDetail;
 
   const toggleTheme = () => {
@@ -40,6 +40,18 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </div>
 
             <div className="eco-header-actions">
+                            {/* Quiz Challenges Button */}
+              <button
+                type="button"
+                className="eco-icon-btn"
+                onClick={() => navigate("/quiz")}
+                title="Thử thách Quiz Du lịch"
+                aria-label="Quiz Du lịch"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                  quiz
+                </span>
+              </button>
               {/* AI Travel Planner Button */}
               <button
                 type="button"

@@ -19,6 +19,7 @@ const m7Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0007_optim
 const m8Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0008_business_booking.sql'), 'utf8');
 const m9Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0009_booking_transaction_hardening.sql'), 'utf8');
 const m10Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0010_historical_refund_reconciliation.sql'), 'utf8');
+const m11Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0011_tourism_quiz.sql'), 'utf8');
 
 test('Fresh migration path: 0001 -> 0002 -> 0003 applies cleanly and verifies 100% integrity', () => {
   const db = new DatabaseSync(':memory:');
@@ -222,6 +223,28 @@ test('Fresh migration 0010_historical_refund_reconciliation: adds timestamp_prov
   assert.equal(fkViolations.length, 0, 'Zero foreign key violations after 0010');
 });
 
+
+test('Fresh migration 0011_tourism_quiz: creates quiz tables and initial seed additively', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(m1Sql);
+  db.exec(m2Sql);
+  db.exec(m3Sql);
+  db.exec(m4Sql);
+  db.exec(m5Sql);
+  db.exec(m6Sql);
+  db.exec(m7Sql);
+  db.exec(m8Sql);
+  db.exec(m9Sql);
+  db.exec(m10Sql);
+  assert.doesNotThrow(() => db.exec(m11Sql), '0011_tourism_quiz.sql should execute cleanly');
+  const categoriesCount = db.prepare('SELECT count(*) as count FROM quiz_categories').get().count;
+  assert.equal(categoriesCount, 5, 'quiz_categories seeded with 5 items');
+  const questionsCount = db.prepare('SELECT count(*) as count FROM quiz_questions').get().count;
+  assert.equal(questionsCount, 8, 'quiz_questions seeded with 8 items');
+  const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+  assert.equal(fkViolations.length, 0, 'Zero foreign key violations after 0011');
+});
+
 test('Preexisting database upgrade path: upgrades safely without data loss to 0006', () => {
   const db = new DatabaseSync(':memory:');
   db.exec(m1Sql);
@@ -237,6 +260,7 @@ test('Preexisting database upgrade path: upgrades safely without data loss to 00
   assert.doesNotThrow(() => db.exec(m8Sql), '0008 must upgrade preexisting DB cleanly');
   assert.doesNotThrow(() => db.exec(m9Sql), '0009 must upgrade preexisting DB cleanly');
   assert.doesNotThrow(() => db.exec(m10Sql), '0010 must upgrade preexisting DB cleanly');
+  assert.doesNotThrow(() => db.exec(m11Sql), '0011 must upgrade preexisting DB cleanly');
 
   const customPlace = db.prepare("SELECT * FROM places WHERE id = 'custom-preexist'").get();
   assert.ok(customPlace, 'Custom pre-existing record must be preserved');
@@ -266,6 +290,7 @@ test('Idempotency: Re-running 0002, 0003, 0004, 0005, and 0006 statements does n
   assert.doesNotThrow(() => db.exec(m7Sql), 'Second run of 0007_optimistic_lock_guard.sql should not throw');
   assert.doesNotThrow(() => db.exec(m8Sql), 'Second run of 0008_business_booking.sql should not throw');
   assert.doesNotThrow(() => db.exec(m9Sql), 'Second run of 0009_booking_transaction_hardening.sql should not throw');
+  assert.doesNotThrow(() => db.exec(m11Sql), 'Second run of 0011_tourism_quiz.sql should not throw');
   // Note: 0010 uses ALTER TABLE ADD COLUMN which SQLite does not re-add if already exists, tested in upgrade path
 
   const placesCount = db.prepare('SELECT count(*) as count FROM places').get().count;

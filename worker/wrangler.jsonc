@@ -20,6 +20,8 @@
     "ALLOWED_AI_HOSTS": "*",
     "ADMIN_AI_CONFIG_ENABLED": "true",
     "EMAIL_PROVIDER": "test",
-    "CORS_ALLOW_ORIGIN": "*"
+    "CORS_ALLOW_ORIGIN": "*",
+    "MOCK_PAYMENT_ENABLED": "true",
+    "ENVIRONMENT": "development"
   }
 }

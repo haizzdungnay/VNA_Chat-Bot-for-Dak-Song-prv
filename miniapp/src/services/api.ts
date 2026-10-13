@@ -1,4 +1,10 @@
-import type { Category, Place, Article, ChatRequest, ChatResponse, AuthUser, PlannerRequest, ItineraryOutput, TourProduct, TourService, BookingQuote, BookingQuoteItem, TourBooking, TourBookingItem, MockPaymentResult } from "../types";
+import type { Category, Place, Article, ChatRequest, ChatResponse, AuthUser, PlannerRequest, ItineraryOutput, TourProduct, TourService, BookingQuote, BookingQuoteItem, TourBooking, TourBookingItem, MockPaymentResult,
+  QuizCategory,
+  QuizCollection,
+  QuizDailyChallenge,
+  QuizAttemptDetail,
+  QuizUserStats,
+} from "../types";
 import { STORAGE_KEY_AUTH_TOKEN } from "../constants";
 import { safeStorage } from "./storage";
 
@@ -303,5 +309,71 @@ export const api = {
     return handleResponse<{ booking: TourBooking }>(res);
   },
 
+
+  // ==================== PHASE 8.4 TOURISM QUIZ API ====================
+  async getQuizCategories(): Promise<{ categories: QuizCategory[] }> {
+    const res = await safeFetch("/api/quiz/categories");
+    return handleResponse<{ categories: QuizCategory[] }>(res);
+  },
+
+  async getQuizCollections(): Promise<{ collections: QuizCollection[] }> {
+    const res = await safeFetch("/api/quiz/collections");
+    return handleResponse<{ collections: QuizCollection[] }>(res);
+  },
+
+  async getDailyChallenge(): Promise<{ challenge: QuizDailyChallenge | null }> {
+    const res = await safeFetch("/api/quiz/daily");
+    return handleResponse<{ challenge: QuizDailyChallenge | null }>(res);
+  },
+
+  async startQuizAttempt(payload: {
+    attemptType: "daily_challenge" | "practice";
+    challengeId?: string;
+    collectionId?: string;
+    categoryId?: string;
+    difficulty?: string;
+    questionCount?: number;
+  }): Promise<{ attempt: { attemptId: string; attemptType: string; totalQuestions: number; timeLimitSeconds: number; expiresAt?: string; questions: any[] } }> {
+    const res = await safeFetch("/api/quiz/attempts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<{ attempt: any }>(res);
+  },
+
+  async getQuizAttempt(id: string): Promise<{ attempt: QuizAttemptDetail }> {
+    const res = await safeFetch("/api/quiz/attempts/" + encodeURIComponent(id));
+    return handleResponse<{ attempt: QuizAttemptDetail }>(res);
+  },
+
+  async submitQuizAnswer(attemptId: string, payload: {
+    attemptQuestionId: string;
+    selectedOptionId: string;
+  }): Promise<{ success: boolean; alreadyAnswered?: boolean; isCorrect?: boolean; answeredAt?: string }> {
+    const res = await safeFetch("/api/quiz/attempts/" + encodeURIComponent(attemptId) + "/answers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<{ success: boolean; alreadyAnswered?: boolean; isCorrect?: boolean; answeredAt?: string }>(res);
+  },
+
+  async finishQuizAttempt(attemptId: string): Promise<{ result: QuizAttemptDetail }> {
+    const res = await safeFetch("/api/quiz/attempts/" + encodeURIComponent(attemptId) + "/finish", {
+      method: "POST",
+    });
+    return handleResponse<{ result: QuizAttemptDetail }>(res);
+  },
+
+  async getQuizHistory(page = 1, limit = 20): Promise<{ history: any[]; total: number; page: number; limit: number }> {
+    const res = await safeFetch("/api/quiz/history?page=" + page + "&limit=" + limit);
+    return handleResponse<{ history: any[]; total: number; page: number; limit: number }>(res);
+  },
+
+  async getQuizUserStats(): Promise<{ stats: QuizUserStats }> {
+    const res = await safeFetch("/api/quiz/stats");
+    return handleResponse<{ stats: QuizUserStats }>(res);
+  },
 };
 
