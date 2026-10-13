@@ -775,32 +775,59 @@ export class QuizService {
   }
 
   async reconcileUserStats(userId: string): Promise<any> {
-    const agg = await this.env.DB.prepare(
-      "SELECT COUNT(*) as total_attempts, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_attempts, SUM(CASE WHEN status = 'completed' AND attempt_type = 'daily_challenge' THEN 1 ELSE 0 END) as daily_challenges_completed, COALESCE(SUM(CASE WHEN status = 'completed' THEN score ELSE 0 END), 0) as total_score, COALESCE(SUM(CASE WHEN status = 'completed' THEN correct_count ELSE 0 END), 0) as total_correct, COALESCE(SUM(CASE WHEN status = 'completed' THEN (correct_count + incorrect_count) ELSE 0 END), 0) as total_questions_answered, COALESCE(MAX(CASE WHEN status = 'completed' THEN score ELSE 0 END), 0) as best_score, MAX(started_at) as last_attempt_at FROM quiz_attempts WHERE user_id = ?"
+    const userExists = await this.env.DB.prepare(
+      "SELECT id FROM users WHERE id = ?"
     ).bind(userId).first<any>();
 
-    const totalAttempts = agg?.total_attempts || 0;
-    const completedAttempts = agg?.completed_attempts || 0;
-    const dailyCompleted = agg?.daily_challenges_completed || 0;
-    const totalScore = agg?.total_score || 0;
-    const totalCorrect = agg?.total_correct || 0;
-    const totalAnswered = agg?.total_questions_answered || 0;
-    const bestScore = agg?.best_score || 0;
-    const lastAttemptAt = agg?.last_attempt_at || null;
+    if (!userExists) {
+      const err: any = new Error("Người dùng không tồn tại");
+      err.statusCode = 404;
+      throw err;
+    }
 
-    await this.env.DB.prepare(
-      "INSERT INTO quiz_user_stats (user_id, total_attempts, completed_attempts, daily_challenges_completed, total_score, total_correct, total_questions_answered, best_score, last_attempt_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) ON CONFLICT(user_id) DO UPDATE SET total_attempts = excluded.total_attempts, completed_attempts = excluded.completed_attempts, daily_challenges_completed = excluded.daily_challenges_completed, total_score = excluded.total_score, total_correct = excluded.total_correct, total_questions_answered = excluded.total_questions_answered, best_score = excluded.best_score, last_attempt_at = excluded.last_attempt_at, updated_at = datetime('now')"
-    ).bind(
-      userId,
-      totalAttempts,
-      completedAttempts,
-      dailyCompleted,
-      totalScore,
-      totalCorrect,
-      totalAnswered,
-      bestScore,
-      lastAttemptAt
-    ).run();
+    // Atomic single-statement calculation & upsert directly in D1:
+    // Aligns total_attempts = completed_attempts on graded completed attempts (Phase 8.4.3 & 8.4.4 convention).
+    // In-progress attempts do not pollute stats until finalized.
+    // last_attempt_at reflects the most recent completed attempt timestamp.
+    const reconcileSql = `
+      INSERT INTO quiz_user_stats (
+        user_id,
+        total_attempts,
+        completed_attempts,
+        daily_challenges_completed,
+        total_score,
+        total_correct,
+        total_questions_answered,
+        best_score,
+        last_attempt_at,
+        updated_at
+      )
+      SELECT
+        ?,
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0),
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0),
+        COALESCE(SUM(CASE WHEN status = 'completed' AND attempt_type = 'daily_challenge' THEN 1 ELSE 0 END), 0),
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN score ELSE 0 END), 0),
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN correct_count ELSE 0 END), 0),
+        COALESCE(SUM(CASE WHEN status = 'completed' THEN (correct_count + incorrect_count) ELSE 0 END), 0),
+        COALESCE(MAX(CASE WHEN status = 'completed' THEN score ELSE 0 END), 0),
+        MAX(CASE WHEN status = 'completed' THEN completed_at ELSE NULL END),
+        datetime('now')
+      FROM quiz_attempts
+      WHERE user_id = ?
+      ON CONFLICT(user_id) DO UPDATE SET
+        total_attempts = excluded.total_attempts,
+        completed_attempts = excluded.completed_attempts,
+        daily_challenges_completed = excluded.daily_challenges_completed,
+        total_score = excluded.total_score,
+        total_correct = excluded.total_correct,
+        total_questions_answered = excluded.total_questions_answered,
+        best_score = excluded.best_score,
+        last_attempt_at = excluded.last_attempt_at,
+        updated_at = excluded.updated_at;
+    `;
+
+    await this.env.DB.prepare(reconcileSql).bind(userId, userId).run();
 
     return await this.getUserStats(userId);
   }
@@ -811,19 +838,13 @@ export class QuizService {
     const offset = (p - 1) * l;
 
     const countRes = await this.env.DB.prepare(
-      `SELECT COUNT(*) as total FROM quiz_attempts WHERE user_id = ?`
+      "SELECT COUNT(*) as total FROM quiz_attempts WHERE user_id = ?"
     )
       .bind(userId)
       .first<any>();
 
     const listRes = await this.env.DB.prepare(
-      `SELECT a.*, ch.title as challenge_title, col.title as collection_title
-       FROM quiz_attempts a
-       LEFT JOIN quiz_challenges ch ON a.challenge_id = ch.id
-       LEFT JOIN quiz_collections col ON a.collection_id = col.id
-       WHERE a.user_id = ?
-       ORDER BY a.started_at DESC
-       LIMIT ? OFFSET ?`
+      "SELECT a.*, ch.title as challenge_title, col.title as collection_title FROM quiz_attempts a LEFT JOIN quiz_challenges ch ON a.challenge_id = ch.id LEFT JOIN quiz_collections col ON a.collection_id = col.id WHERE a.user_id = ? ORDER BY a.started_at DESC LIMIT ? OFFSET ?"
     )
       .bind(userId, l, offset)
       .all<any>();
