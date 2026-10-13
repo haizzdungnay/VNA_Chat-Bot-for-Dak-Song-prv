@@ -743,32 +743,18 @@ export class QuizService {
       return await this.getAttempt(userId, attemptId);
     }
 
-    const scorePerQ: number = (typeof attempt.score_per_question === "number" && Number.isSafeInteger(attempt.score_per_question) && attempt.score_per_question > 0)
-      ? attempt.score_per_question
-      : 10;
-
-    const ansSummary = await this.env.DB.prepare(
-      "SELECT COUNT(*) as total_answers, COALESCE(SUM(is_correct), 0) as total_correct, COALESCE(SUM(points), 0) as total_points FROM quiz_attempt_answers WHERE attempt_id = ?"
-    ).bind(attemptId).first<any>();
-
-    const totalAnswered = ansSummary?.total_answers || 0;
-    const correctCount = ansSummary?.total_correct || 0;
-    const incorrectCount = totalAnswered - correctCount;
-    const unanswered = Math.max(0, attempt.total_questions - totalAnswered);
-    const finalScore = ansSummary?.total_points || 0;
-    const maxScore = attempt.total_questions * scorePerQ;
-    const isDaily = attempt.attempt_type === "daily_challenge" ? 1 : 0;
-
+    // P1-QZ-06: Compute all totals atomically inside SQL D1 batch expressions
+    // to prevent race conditions where concurrent answers are committed between a pre-batch SELECT and the CAS UPDATE.
     const finishStatements: any[] = [
       this.env.DB.prepare(
-        "UPDATE quiz_attempts SET status = 'completed', correct_count = ?, incorrect_count = ?, unanswered_count = ?, score = ?, max_score = ?, completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND status = 'in_progress'"
-      ).bind(correctCount, incorrectCount, unanswered, finalScore, maxScore, attemptId),
+        "UPDATE quiz_attempts SET status = 'completed', correct_count = (SELECT COALESCE(SUM(is_correct), 0) FROM quiz_attempt_answers WHERE attempt_id = quiz_attempts.id), incorrect_count = (SELECT COALESCE(SUM(CASE WHEN is_correct = 0 THEN 1 ELSE 0 END), 0) FROM quiz_attempt_answers WHERE attempt_id = quiz_attempts.id), unanswered_count = max(0, quiz_attempts.total_questions - (SELECT COUNT(*) FROM quiz_attempt_answers WHERE attempt_id = quiz_attempts.id)), score = (SELECT COALESCE(SUM(points), 0) FROM quiz_attempt_answers WHERE attempt_id = quiz_attempts.id), max_score = quiz_attempts.total_questions * quiz_attempts.score_per_question, completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND status = 'in_progress'"
+      ).bind(attemptId),
 
       this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"),
 
       this.env.DB.prepare(
-        "INSERT INTO quiz_user_stats (user_id, total_attempts, completed_attempts, daily_challenges_completed, total_score, total_correct, total_questions_answered, best_score, last_attempt_at, updated_at) VALUES (?, 1, 1, ?, ?, ?, ?, ?, datetime('now'), datetime('now')) ON CONFLICT(user_id) DO UPDATE SET total_attempts = quiz_user_stats.total_attempts + 1, completed_attempts = quiz_user_stats.completed_attempts + 1, daily_challenges_completed = quiz_user_stats.daily_challenges_completed + excluded.daily_challenges_completed, total_score = quiz_user_stats.total_score + excluded.total_score, total_correct = quiz_user_stats.total_correct + excluded.total_correct, total_questions_answered = quiz_user_stats.total_questions_answered + excluded.total_questions_answered, best_score = MAX(quiz_user_stats.best_score, excluded.best_score), last_attempt_at = datetime('now'), updated_at = datetime('now')"
-      ).bind(userId, isDaily, finalScore, correctCount, totalAnswered, finalScore),
+        "INSERT INTO quiz_user_stats (user_id, total_attempts, completed_attempts, daily_challenges_completed, total_score, total_correct, total_questions_answered, best_score, last_attempt_at, updated_at) SELECT qa.user_id, 1, 1, CASE WHEN qa.attempt_type = 'daily_challenge' THEN 1 ELSE 0 END, qa.score, qa.correct_count, qa.correct_count + qa.incorrect_count, qa.score, qa.completed_at, qa.completed_at FROM quiz_attempts qa WHERE qa.id = ? ON CONFLICT(user_id) DO UPDATE SET total_attempts = quiz_user_stats.total_attempts + 1, completed_attempts = quiz_user_stats.completed_attempts + 1, daily_challenges_completed = quiz_user_stats.daily_challenges_completed + excluded.daily_challenges_completed, total_score = quiz_user_stats.total_score + excluded.total_score, total_correct = quiz_user_stats.total_correct + excluded.total_correct, total_questions_answered = quiz_user_stats.total_questions_answered + excluded.total_questions_answered, best_score = MAX(quiz_user_stats.best_score, excluded.best_score), last_attempt_at = excluded.last_attempt_at, updated_at = excluded.updated_at"
+      ).bind(attemptId),
 
       this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1")
     ];

@@ -806,7 +806,7 @@ test('P1-02: Ongoing attempt preservation allows finishing after challenge closi
 // =============================================================================
 // PHASE 8.4.2 TRANSACTION INTEGRITY & FAILURE INJECTION TESTS
 // =============================================================================
-test('Phase 8.4.2: Injected failure in finishAttempt batch causes full rollback without inconsistent partial state', async () => {
+test('Phase 8.4.3 Test A: Injected mid-batch failure after CAS UPDATE and before stats commit causes full rollback, retry increments exactly once', async () => {
   const env = createQuizTestEnv();
   const quizService = new QuizService(env);
 
@@ -824,33 +824,48 @@ test('Phase 8.4.2: Injected failure in finishAttempt batch causes full rollback 
     selectedOptionId: q1.options[0].id,
   });
 
-  // Intercept DB.batch to inject artificial mid-batch failure on stats statement
+  // Intercept DB.batch: execute statements 0 (UPDATE) and 1 (guard) normally inside BEGIN IMMEDIATE,
+  // but fail statement 2 (stats UPSERT) to trigger transaction ROLLBACK!
   const originalBatch = env.DB.batch.bind(env.DB);
-  let batchAttempts = 0;
+  let batchInvocations = 0;
+
   env.DB.batch = async (statements) => {
-    batchAttempts++;
-    if (batchAttempts === 1) {
-      // Injected failure mid-batch!
-      throw new Error('Simulated D1 engine mid-batch hardware crash');
+    batchInvocations++;
+    if (batchInvocations === 1) {
+      // Modify statement 2 (stats upsert) to throw during transactional execution
+      const failingStatements = statements.map((s, idx) => {
+        if (idx === 2) {
+          return {
+            ...s,
+            _runSync() {
+              throw new Error('Simulated D1 engine crash during statement 2 inside transaction');
+            },
+          };
+        }
+        return s;
+      });
+      return originalBatch(failingStatements);
     }
     return originalBatch(statements);
   };
 
-  // Attempt finish: must fail or catch cleanly without partial update
+  // Attempt finish: must throw due to simulated mid-batch crash
   const finishResult = await quizService.finishAttempt('user-alice', attId).catch(err => err);
-  assert.ok(finishResult instanceof Error, 'Injected crash must throw');
+  assert.ok(finishResult instanceof Error, 'Mid-batch crash must throw');
+  assert.ok(finishResult.message.includes('Simulated D1 engine crash'));
 
-  // Verify that because batch threw, attempt status in DB remains 'in_progress'
+  // PROOF OF TRANSACTIONAL ROLLBACK:
+  // Statement 0 (UPDATE quiz_attempts) ran before statement 2 threw.
+  // Because SQLite rolled back the transaction, quiz_attempts MUST REVERT to 'in_progress'!
   const inDb = await env.DB.prepare('SELECT status, completed_at FROM quiz_attempts WHERE id = ?').bind(attId).first();
-  assert.equal(inDb.status, 'in_progress', 'Attempt must remain in_progress when batch fails (full rollback)');
-  assert.equal(inDb.completed_at, null);
+  assert.equal(inDb.status, 'in_progress', 'Attempt status must rollback to in_progress');
+  assert.equal(inDb.completed_at, null, 'completed_at must rollback to null');
 
-  // Stats in DB must NOT have been created or incremented
+  // User stats must NOT exist
   const statsInDb = await env.DB.prepare('SELECT * FROM quiz_user_stats WHERE user_id = ?').bind('user-alice').first();
-  assert.ok(!statsInDb, 'User stats must NOT be written when batch fails');
+  assert.ok(!statsInDb, 'User stats must NOT be written when transaction rolls back');
 
-  // Restore original batch and retry finishAttempt: Must now succeed cleanly!
-  env.DB.batch = originalBatch;
+  // Retry finishAttempt without injected failure: Must succeed cleanly!
   const retryFinish = await quizService.finishAttempt('user-alice', attId);
   assert.equal(retryFinish.status, 'completed');
 
@@ -858,7 +873,82 @@ test('Phase 8.4.2: Injected failure in finishAttempt batch causes full rollback 
   assert.equal(afterRetryDb.status, 'completed');
 
   const afterStats = await env.DB.prepare('SELECT completed_attempts FROM quiz_user_stats WHERE user_id = ?').bind('user-alice').first();
-  assert.equal(afterStats.completed_attempts, 1);
+  assert.equal(afterStats.completed_attempts, 1, 'Stats must increment exactly once after retry');
+});
+
+
+test('Phase 8.4.3 Test B: Interleaving test: commit submitAnswer (both correct and incorrect) during finalize pause, verify atomic final score matches answers', async () => {
+  const env = createQuizTestEnv();
+  const quizService = new QuizService(env);
+
+  const startRes = await quizService.startAttempt('user-alice', {
+    attemptType: 'practice',
+    questionCount: 3,
+  });
+
+  const attId = startRes.attemptId;
+  const q1 = startRes.questions[0];
+  const q2 = startRes.questions[1];
+  const q3 = startRes.questions[2];
+
+  // Fetch correct option for q1, wrong option for q2
+  const q1Detail = await env.DB.prepare('SELECT correct_option_id FROM quiz_attempt_questions WHERE id = ?').bind(q1.id).first();
+  const q2Detail = await env.DB.prepare('SELECT correct_option_id FROM quiz_attempt_questions WHERE id = ?').bind(q2.id).first();
+
+  const q1CorrectOpt = q1Detail.correct_option_id;
+  const q2WrongOpt = q2.options.find(o => o.id !== q2Detail.correct_option_id)?.id || q2.options[0].id;
+
+  // Intercept DB.batch: Pause right before finish batch executes,
+  // and commit valid submitAnswer for Q1 (correct) and Q2 (incorrect) during that pause!
+  const originalBatch = env.DB.batch.bind(env.DB);
+  let batchCalls = 0;
+
+  env.DB.batch = async (statements) => {
+    batchCalls++;
+    if (batchCalls === 1) {
+      // Simulate concurrent T2 submitAnswer interleaved right before finish batch commits!
+      // Submit Q1 (correct -> +10)
+      await quizService.submitAnswer('user-alice', attId, {
+        attemptQuestionId: q1.id,
+        selectedOptionId: q1CorrectOpt,
+      });
+
+      // Submit Q2 (incorrect -> +0)
+      await quizService.submitAnswer('user-alice', attId, {
+        attemptQuestionId: q2.id,
+        selectedOptionId: q2WrongOpt,
+      });
+      // Q3 is left unanswered
+    }
+    return originalBatch(statements);
+  };
+
+  // Alice finalizes attempt
+  const finishRes = await quizService.finishAttempt('user-alice', attId);
+
+  // Assert atomic SQL subqueries inside finish batch captured the interleaved answers!
+  assert.equal(finishRes.status, 'completed');
+  assert.equal(finishRes.correctCount, 1, 'Correct count must be exactly 1');
+  assert.equal(finishRes.incorrectCount, 1, 'Incorrect count must be exactly 1');
+  assert.equal(finishRes.unansweredCount, 1, 'Unanswered count must be exactly 1 (Q3)');
+  assert.equal(finishRes.score, 10, 'Score must be exactly 10 points (Q1 correct, Q2 wrong)');
+  assert.equal(finishRes.maxScore, 30, 'Max score must be 3 * 10 = 30');
+
+  // Assert user stats derived directly from finalized attempt
+  const stats = await quizService.getUserStats('user-alice');
+  assert.equal(stats.completedAttempts, 1);
+  assert.equal(stats.totalScore, 10);
+  assert.equal(stats.totalCorrect, 1);
+  assert.equal(stats.totalQuestionsAnswered, 2);
+
+  // Repeated finish is idempotent
+  const repeatedFinish = await quizService.finishAttempt('user-alice', attId);
+  assert.equal(repeatedFinish.score, 10);
+  assert.equal(repeatedFinish.correctCount, 1);
+
+  const statsAfterRepeat = await quizService.getUserStats('user-alice');
+  assert.equal(statsAfterRepeat.completedAttempts, 1, 'Repeated finish must not double count stats');
+  assert.equal(statsAfterRepeat.totalScore, 10);
 });
 
 test('Phase 8.4.2: Submitting answer to already finalized attempt is blocked and rolled back by optimistic guard', async () => {
