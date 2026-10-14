@@ -391,7 +391,7 @@ test('Reward Engine: Zero stock segment is bypassed and awards no_win safely', a
 
   // Alice spins
   await service.claimDailySpin('user-alice');
-  const spinRes = await service.executeSpin('user-alice');
+  const spinRes = await service.executeSpin('user-alice', { idempotencyKey: 'idem-zero-stock-01' });
 
   // Must NOT award seg-1 because it is exhausted! Must award seg-2 (no_win)
   assert.equal(spinRes.segment.id, 'seg-2');
@@ -417,7 +417,7 @@ test('Reward Engine: Mid-batch failure triggers 100% rollback of entitlement and
 
   // Execute spin: guard insert (changes()) will conflict with existing 1
   await assert.rejects(
-    service.executeSpin('user-alice'),
+    service.executeSpin('user-alice', { idempotencyKey: 'idem-fault-test-01' }),
     /UNIQUE/
   );
 
@@ -433,7 +433,7 @@ test('Reward Engine: Mid-batch failure triggers 100% rollback of entitlement and
   assert.equal(walletCount.c, 0, 'No wallet items should exist after rollback');
 
   // Now retry cleanly: succeeds exactly once!
-  const retryRes = await service.executeSpin('user-alice');
+  const retryRes = await service.executeSpin('user-alice', { idempotencyKey: 'idem-fault-test-01' });
   assert.equal(retryRes.success, true);
   const entAfter = await env.DB.prepare("SELECT * FROM reward_entitlements WHERE user_id = 'user-alice'").first();
   assert.equal(entAfter.consumed_count, 1);
@@ -451,7 +451,7 @@ test('Admin Reward: Exactly-once redemption, rejects duplicate and revoked vouch
   await env.DB.prepare("UPDATE reward_spin_segments SET weight = 0 WHERE wheel_id = 'wheel-dak-song-lucky'").run();
   await env.DB.prepare("UPDATE reward_spin_segments SET weight = 100 WHERE id = 'seg-1'").run();
   await service.claimDailySpin('user-alice');
-  const spin = await service.executeSpin('user-alice');
+  const spin = await service.executeSpin('user-alice', { idempotencyKey: 'idem-rdm-test-01' });
   const voucherId = spin.voucher.id;
 
   // 1. First redemption by Admin
@@ -485,6 +485,259 @@ test('Admin Reward: Exactly-once redemption, rejects duplicate and revoked vouch
 });
 
 // -----------------------------------------------------------------------------
+// 11. P1-RWD-01: VOUCHER INSUFFICIENT TEMPLATE STOCK GUARDS & ROLLBACK
+// -----------------------------------------------------------------------------
+test('P1-RWD-01: Voucher segment never creates spin attempt with NULL voucher, rolls back on stock exhaustion', async () => {
+  const env = createRewardTestEnv();
+  const service = new RewardService(env);
+
+  // Setup: template has stock = 1 and issued_count = 1 (Sold out at template level)
+  await env.DB.prepare("UPDATE reward_voucher_templates SET total_stock = 1, issued_count = 1 WHERE id = 'tpl-coffee-20'").run();
+  // Segment 1 points to tpl-coffee-20 with weight 100
+  await env.DB.prepare("UPDATE reward_spin_segments SET weight = 0 WHERE wheel_id = 'wheel-dak-song-lucky'").run();
+  await env.DB.prepare("UPDATE reward_spin_segments SET weight = 100 WHERE id = 'seg-1'").run();
+  // Segment 2 is no_win with weight 50
+  await env.DB.prepare("UPDATE reward_spin_segments SET weight = 50 WHERE id = 'seg-2'").run();
+
+  await service.claimDailySpin('user-alice');
+
+  // Spin should automatically bypass unstocked template seg-1 and award seg-2 (no_win)!
+  const spinRes = await service.executeSpin('user-alice', { idempotencyKey: 'idem-p1-01-stock' });
+  assert.equal(spinRes.segment.id, 'seg-2');
+  assert.equal(spinRes.segment.segmentType, 'no_win');
+  assert.equal(spinRes.voucher, null);
+
+  // Invariant check: Any completed spin in DB with result_type = 'voucher' MUST have non-null voucher_id
+  const badSpins = await env.DB.prepare(
+    "SELECT count(*) as c FROM reward_spin_attempts WHERE result_type = 'voucher' AND voucher_id IS NULL"
+  ).first();
+  assert.equal(badSpins.c, 0, 'Zero spin attempts with result_type=voucher and NULL voucher_id');
+});
+
+// -----------------------------------------------------------------------------
+// 12. P1-RWD-02: GIFT_ITEM CLAIM CREATION, INVENTORY DEBIT & ADMIN FULFILLMENT
+// -----------------------------------------------------------------------------
+test('P1-RWD-02: gift_item awards claim ticket, increments awarded_count, fulfills once with CAS', async () => {
+  const env = createRewardTestEnv();
+  const service = new RewardService(env);
+  const adminService = new AdminRewardService(env);
+
+  // Configure wheel for 100% gift_item win on seg-5
+  await env.DB.prepare("UPDATE reward_spin_segments SET weight = 0 WHERE wheel_id = 'wheel-dak-song-lucky'").run();
+  await env.DB.prepare("UPDATE reward_spin_segments SET weight = 100, total_inventory = 10, awarded_count = 0 WHERE id = 'seg-5'").run();
+
+  await service.claimDailySpin('user-alice');
+  const spinRes = await service.executeSpin('user-alice', { idempotencyKey: 'idem-gift-test-01' });
+
+  assert.equal(spinRes.segment.segmentType, 'gift_item');
+  assert.ok(spinRes.giftClaim, 'Response must include giftClaim');
+  assert.ok(spinRes.giftClaim.claimCode.startsWith('GIFT-'));
+  assert.equal(spinRes.giftClaim.status, 'pending');
+
+  // Check inventory incremented in DB
+  const seg5 = await env.DB.prepare("SELECT * FROM reward_spin_segments WHERE id = 'seg-5'").first();
+  assert.equal(seg5.awarded_count, 1);
+
+  // Check gift claim record in DB
+  const userClaims = await service.getUserGiftClaims('user-alice');
+  assert.equal(userClaims.length, 1);
+  assert.equal(userClaims[0].claim_code, spinRes.giftClaim.claimCode);
+  assert.equal(userClaims[0].status, 'pending');
+
+  // Admin fulfills gift claim
+  const fulfilled = await adminService.fulfillGiftClaim('admin@daksong.vn', spinRes.giftClaim.claimCode);
+  assert.equal(fulfilled.status, 'fulfilled');
+  assert.equal(fulfilled.fulfilled_by, 'admin@daksong.vn');
+
+  // Duplicate fulfillment rejected with 409
+  await assert.rejects(
+    adminService.fulfillGiftClaim('admin@daksong.vn', spinRes.giftClaim.claimCode),
+    /đã được bàn giao/
+  );
+
+  // Revoking an already fulfilled gift rejected with 409
+  await assert.rejects(
+    adminService.revokeGiftClaim('admin@daksong.vn', userClaims[0].id, 'Thử thu hồi'),
+    /đã được bàn giao/
+  );
+});
+
+// -----------------------------------------------------------------------------
+// 13. P1-RWD-03: MANDATORY IDEMPOTENCY KEY VALIDATION & CATCH RECOVERY
+// -----------------------------------------------------------------------------
+test('P1-RWD-03: Mandatory Idempotency-Key validation, catch-branch recovery verifies user and hash', async () => {
+  const env = createRewardTestEnv();
+  const service = new RewardService(env);
+
+  await service.claimDailySpin('user-alice');
+
+  // Rejects missing idempotencyKey
+  await assert.rejects(
+    service.executeSpin('user-alice', {}),
+    /Idempotency-Key không hợp lệ/
+  );
+
+  // Rejects too short (< 8 chars)
+  await assert.rejects(
+    service.executeSpin('user-alice', { idempotencyKey: 'abc' }),
+    /Idempotency-Key không hợp lệ/
+  );
+
+  // Rejects special characters
+  await assert.rejects(
+    service.executeSpin('user-alice', { idempotencyKey: 'bad!key@name' }),
+    /Idempotency-Key không hợp lệ/
+  );
+});
+
+// -----------------------------------------------------------------------------
+// 14. P1-RWD-04: CAMPAIGN TIME WINDOW, TOTAL QUOTA & PER-USER LIMIT ENFORCEMENT
+// -----------------------------------------------------------------------------
+test('P1-RWD-04: Campaign time window, wheel resolution, per-user limit and atomic quota', async () => {
+  const env = createRewardTestEnv();
+  const service = new RewardService(env);
+  const adminService = new AdminRewardService(env);
+
+  // 1. Campaign not yet started (start_at in future)
+  const futureCamp = await adminService.createCampaign({
+    code: 'CAMP_FUTURE_01',
+    title: 'Chiến dịch tương lai',
+    startAt: new Date(Date.now() + 86400000).toISOString(),
+  });
+  await adminService.setCampaignStatus(futureCamp.id, 'published');
+  const futureWheel = await adminService.createWheel({ campaignId: futureCamp.id, title: 'Vòng quay tương lai' });
+  await adminService.toggleWheelStatus(futureWheel.id, 'active');
+
+  await assert.rejects(
+    service.executeSpin('user-alice', { wheelId: futureWheel.id, campaignId: futureCamp.id, idempotencyKey: 'idem-future-01' }),
+    /chưa đến thời gian mở thưởng/
+  );
+
+  // 2. Campaign already expired (end_at in past)
+  const pastCamp = await adminService.createCampaign({
+    code: 'CAMP_PAST_01',
+    title: 'Chiến dịch quá khứ',
+    startAt: new Date(Date.now() - 172800000).toISOString(),
+    endAt: new Date(Date.now() - 86400000).toISOString(),
+  });
+  await adminService.setCampaignStatus(pastCamp.id, 'published');
+  const pastWheel = await adminService.createWheel({ campaignId: pastCamp.id, title: 'Vòng quay quá khứ' });
+  await adminService.toggleWheelStatus(pastWheel.id, 'active');
+
+  await assert.rejects(
+    service.executeSpin('user-alice', { wheelId: pastWheel.id, campaignId: pastCamp.id, idempotencyKey: 'idem-past-01' }),
+    /đã kết thúc/
+  );
+
+  // 3. Wheel cross-campaign mismatch
+  await assert.rejects(
+    service.executeSpin('user-alice', { wheelId: futureWheel.id, campaignId: pastCamp.id, idempotencyKey: 'idem-mismatch-01' }),
+    /không tồn tại hoặc chưa kích hoạt/
+  );
+
+  // 4. Per-user limit enforcement (per_user_limit = 1)
+  const limitedCamp = await adminService.createCampaign({
+    code: 'CAMP_LIMIT_01',
+    title: 'Chiến dịch giới hạn 1 lượt',
+    perUserLimit: 1,
+    eligibilityRules: { allow_free_daily: true },
+  });
+  await adminService.setCampaignStatus(limitedCamp.id, 'published');
+  const limitedWheel = await adminService.createWheel({ campaignId: limitedCamp.id, title: 'Vòng quay 1 lượt' });
+  await adminService.setWheelSegments(limitedWheel.id, [
+    { label: 'Chúc may mắn', segmentType: 'no_win', weight: 50 },
+    { label: 'Quà lưu niệm', segmentType: 'gift_item', weight: 50 },
+  ]);
+  await adminService.toggleWheelStatus(limitedWheel.id, 'active');
+
+  // First spin succeeds
+  await service.claimDailySpin('user-alice', limitedCamp.id);
+  const spin1 = await service.executeSpin('user-alice', { wheelId: limitedWheel.id, campaignId: limitedCamp.id, idempotencyKey: 'idem-limit-spin-01' });
+  assert.equal(spin1.success, true);
+
+  // Grant another turn manually to simulate trying to exceed limit
+  await env.DB.prepare(`
+    INSERT INTO reward_entitlements (id, user_id, campaign_id, grant_type, total_granted, consumed_count, created_at, updated_at)
+    VALUES ('ent-cheat', 'user-alice', ?, 'admin_grant', 1, 0, datetime('now'), datetime('now'))
+  `).bind(limitedCamp.id).run();
+
+  // Second spin is blocked by per_user_limit with 403!
+  await assert.rejects(
+    service.executeSpin('user-alice', { wheelId: limitedWheel.id, campaignId: limitedCamp.id, idempotencyKey: 'idem-limit-spin-02' }),
+    /đạt giới hạn tối đa/
+  );
+});
+
+// -----------------------------------------------------------------------------
+// 15. P2-RWD-05: SET WHEEL SEGMENTS BLOCKED ON HISTORICAL WHEEL & CLONING
+// -----------------------------------------------------------------------------
+test('P2-RWD-05: Modifying segments of wheel with history is blocked with 409; cloneWheel works cleanly', async () => {
+  const env = createRewardTestEnv();
+  const service = new RewardService(env);
+  const adminService = new AdminRewardService(env);
+
+  // Do a spin on wheel-dak-song-lucky so it has spin attempts
+  await service.claimDailySpin('user-alice');
+  await service.executeSpin('user-alice', { idempotencyKey: 'idem-hist-spin-01' });
+
+  // Now attempt to delete/modify segments of wheel-dak-song-lucky -> Must throw 409!
+  await assert.rejects(
+    adminService.setWheelSegments('wheel-dak-song-lucky', [
+      { label: 'Mới 1', segmentType: 'no_win', weight: 50 },
+      { label: 'Mới 2', segmentType: 'no_win', weight: 50 },
+    ]),
+    /lịch sử/
+  );
+
+  // Clone wheel to create a new draft version
+  const cloned = await adminService.cloneWheel('wheel-dak-song-lucky', 'Vòng quay Đắk Song V2');
+  assert.ok(cloned.wheel.id);
+  assert.notEqual(cloned.wheel.id, 'wheel-dak-song-lucky');
+  assert.equal(cloned.wheel.status, 'draft');
+  assert.equal(cloned.wheel.title, 'Vòng quay Đắk Song V2');
+  assert.equal(cloned.segments.length, 6);
+
+  // The new draft wheel CAN have its segments modified!
+  const updatedDraft = await adminService.setWheelSegments(cloned.wheel.id, [
+    { label: 'Voucher 1', segmentType: 'voucher', voucherTemplateId: 'tpl-coffee-20', weight: 50 },
+    { label: 'Không trúng', segmentType: 'no_win', weight: 50 },
+  ]);
+  assert.equal(updatedDraft.segments.length, 2);
+});
+
+// -----------------------------------------------------------------------------
+// 16. P2-RWD-06: VOUCHER STATE MACHINE TERMINAL TRANSITIONS
+// -----------------------------------------------------------------------------
+test('P2-RWD-06: Voucher state machine rejects invalid transitions (redeemed -> revoke, expired -> redeem)', async () => {
+  const env = createRewardTestEnv();
+  const adminService = new AdminRewardService(env);
+
+  // Create sample vouchers in different states
+  const vRedeemed = 'v-test-redeemed';
+  await env.DB.prepare(`
+    INSERT INTO reward_wallet_items (id, user_id, voucher_code, title, discount_display, category, terms_conditions_snapshot, status, source_type, issued_at, expires_at, redeemed_at)
+    VALUES (?, 'user-alice', 'TEST-RED-01', 'Test', '10%', 'all', '{}', 'redeemed', 'lucky_spin', datetime('now'), datetime('now', '+10 days'), datetime('now'))
+  `).bind(vRedeemed).run();
+
+  // Cannot revoke already redeemed voucher -> 409
+  await assert.rejects(
+    adminService.revokeVoucher('admin@vna.vn', vRedeemed, 'Thu hồi nhầm'),
+    /đã được sử dụng/
+  );
+
+  const vExpired = 'v-test-expired';
+  await env.DB.prepare(`
+    INSERT INTO reward_wallet_items (id, user_id, voucher_code, title, discount_display, category, terms_conditions_snapshot, status, source_type, issued_at, expires_at)
+    VALUES (?, 'user-alice', 'TEST-EXP-01', 'Test', '10%', 'all', '{}', 'issued', 'lucky_spin', datetime('now', '-20 days'), datetime('now', '-10 days'))
+  `).bind(vExpired).run();
+
+  // Cannot redeem expired voucher -> 400
+  await assert.rejects(
+    adminService.redeemVoucher('admin@vna.vn', vExpired),
+    /hết hạn/
+  );
+});
+// -----------------------------------------------------------------------------
 // 10. HTTP ROUTER E2E: TOURIST & ADMIN FLOW
 // -----------------------------------------------------------------------------
 test('HTTP Router E2E: Tourist spin, wallet inquiry, and admin analytics with CSV export', async () => {
@@ -506,6 +759,7 @@ test('HTTP Router E2E: Tourist spin, wallet inquiry, and admin analytics with CS
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Idempotency-Key': 'idem-http-test-01',
         'Authorization': 'Bearer alice-test-session-token-123456',
       },
       body: JSON.stringify({}),

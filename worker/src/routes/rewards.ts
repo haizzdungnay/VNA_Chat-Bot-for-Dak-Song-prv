@@ -200,3 +200,22 @@ export const rewardSpinHistoryRoute: RouteHandler = async (req, _params, env) =>
   }
 };
 
+/**
+ * GET /api/rewards/gift-claims
+ * Danh sách quà tặng trúng thưởng của người dùng (P1-RWD-02)
+ */
+export const rewardGiftClaimsRoute: RouteHandler = async (req, _params, env) => {
+  const auth = await authenticateUser(req, env);
+  if (!auth.authenticated || !auth.user) {
+    return errorResponse(auth.error || "Yêu cầu đăng nhập.", auth.status || 401, env);
+  }
+
+  try {
+    const service = new RewardService(env);
+    const claims = await service.getUserGiftClaims(auth.user.id);
+    return jsonResponse({ claims }, 200, env);
+  } catch (err: any) {
+    return errorResponse(err.message || "Lỗi khi tải danh sách quà tặng.", 500, env);
+  }
+};
+

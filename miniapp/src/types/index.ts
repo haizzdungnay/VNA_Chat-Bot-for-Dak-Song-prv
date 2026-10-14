@@ -442,6 +442,17 @@ export interface RewardSpinWheel {
   cost_entitlement_count: number;
 }
 
+export interface RewardGiftClaim {
+  id: string;
+  claim_code: string;
+  title: string;
+  description?: string | null;
+  status: "pending" | "fulfilled" | "revoked";
+  awarded_at: string;
+  fulfilled_at?: string | null;
+  fulfilled_by?: string | null;
+}
+
 export interface RewardSpinEligibility {
   canSpin: boolean;
   availableTurns: number;
@@ -468,5 +479,11 @@ export interface RewardSpinResult {
     discountDisplay: string;
     category: string;
     expiresAt: string;
+  } | null;
+  giftClaim?: {
+    id: string;
+    claimCode: string;
+    title: string;
+    status: "pending" | "fulfilled" | "revoked";
   } | null;
 }

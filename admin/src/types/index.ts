@@ -266,6 +266,26 @@ export interface AdminRewardWalletItem {
   campaign_title?: string | null;
 }
 
+export interface AdminRewardGiftClaim {
+  id: string;
+  user_id: string;
+  campaign_id: string;
+  wheel_id: string;
+  segment_id: string;
+  spin_attempt_id: string;
+  claim_code: string;
+  title: string;
+  description?: string | null;
+  status: "pending" | "fulfilled" | "revoked";
+  awarded_at: string;
+  fulfilled_at?: string | null;
+  fulfilled_by?: string | null;
+  notes?: string | null;
+  user_email?: string | null;
+  user_name?: string | null;
+  campaign_title?: string | null;
+}
+
 export interface AdminRewardAnalytics {
   campaigns: {
     total: number;

@@ -3,7 +3,7 @@ import { useNavigate } from "zmp-ui";
 import { api } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import { useApp } from "../context/AppContext";
-import type { RewardWalletItem } from "../types";
+import type { RewardWalletItem, RewardGiftClaim } from "../types";
 import { LoadingView, EmptyView, ErrorView } from "../components/state-view";
 
 const VoucherWalletPage: React.FC = () => {
@@ -12,6 +12,8 @@ const VoucherWalletPage: React.FC = () => {
   const { showToast } = useApp();
 
   const [items, setItems] = useState<RewardWalletItem[]>([]);
+  const [giftClaims, setGiftClaims] = useState<RewardGiftClaim[]>([]);
+  const [walletSection, setWalletSection] = useState<"vouchers" | "gifts">("vouchers");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>("all");
@@ -26,15 +28,20 @@ const VoucherWalletPage: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const statusParam = activeTab === "all" ? undefined : activeTab;
-      const res = await api.getRewardWallet(statusParam, 1, 50);
-      setItems(res.items || []);
+      if (walletSection === "vouchers") {
+        const statusParam = activeTab === "all" ? undefined : activeTab;
+        const res = await api.getRewardWallet(statusParam, 1, 50);
+        setItems(res.items || []);
+      } else {
+        const res = await api.getGiftClaims();
+        setGiftClaims(res.claims || []);
+      }
     } catch (err: any) {
       setError(err?.message || "Lỗi khi tải ví voucher");
     } finally {
       setLoading(false);
     }
-  }, [isAuthenticated, activeTab]);
+  }, [isAuthenticated, activeTab, walletSection]);
 
   useEffect(() => {
     loadWallet();
@@ -143,6 +150,42 @@ const VoucherWalletPage: React.FC = () => {
       </div>
 
       {/* Filter Tabs */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", backgroundColor: "var(--color-surface-container)", borderRadius: 10, padding: 4, marginBottom: 12 }}>
+        <button
+          type="button"
+          onClick={() => setWalletSection("vouchers")}
+          style={{
+            padding: "8px 12px",
+            borderRadius: 8,
+            border: "none",
+            backgroundColor: walletSection === "vouchers" ? "var(--color-primary)" : "transparent",
+            color: walletSection === "vouchers" ? "#ffffff" : "var(--color-text-secondary)",
+            fontWeight: 700,
+            fontSize: 13,
+            cursor: "pointer",
+          }}
+        >
+          Mã Voucher
+        </button>
+        <button
+          type="button"
+          onClick={() => setWalletSection("gifts")}
+          style={{
+            padding: "8px 12px",
+            borderRadius: 8,
+            border: "none",
+            backgroundColor: walletSection === "gifts" ? "var(--color-primary)" : "transparent",
+            color: walletSection === "gifts" ? "#ffffff" : "var(--color-text-secondary)",
+            fontWeight: 700,
+            fontSize: 13,
+            cursor: "pointer",
+          }}
+        >
+          Quà lưu niệm ({giftClaims.length})
+        </button>
+      </div>
+
+      {walletSection === "vouchers" && (
       <div
         style={{
           display: "flex",
@@ -182,12 +225,90 @@ const VoucherWalletPage: React.FC = () => {
           );
         })}
       </div>
+      )}
 
       {/* Content */}
       {loading ? (
         <LoadingView message="Đang tải ví voucher..." />
       ) : error ? (
         <ErrorView message={error} onRetry={loadWallet} />
+      ) : walletSection === "gifts" ? (
+        giftClaims.length === 0 ? (
+          <EmptyView
+            message="Bạn chưa có quà lưu niệm nào. Hãy thử vận may tại Vòng quay!"
+            actionText="Quay ngay"
+            onAction={() => navigate("/spin")}
+          />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {giftClaims.map((claim) => (
+              <div
+                key={claim.id}
+                style={{
+                  backgroundColor: "var(--color-surface)",
+                  borderRadius: 14,
+                  border: "1px solid var(--color-border)",
+                  padding: "14px 16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+                  <div>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: "2px 8px",
+                        borderRadius: 12,
+                        backgroundColor: claim.status === "fulfilled" ? "#ecfdf5" : "#fef3c7",
+                        color: claim.status === "fulfilled" ? "#059669" : "#d97706",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {claim.status === "fulfilled" ? "Đã nhận quà" : "Chờ nhận tại quầy"}
+                    </span>
+                    <h3 style={{ fontSize: 15, fontWeight: 700, margin: "6px 0 2px 0" }}>
+                      {claim.title}
+                    </h3>
+                    <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+                      {claim.description}
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    backgroundColor: "var(--color-surface-container)",
+                    borderRadius: 8,
+                    padding: "8px 12px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    border: "1px dashed var(--color-border)",
+                  }}
+                >
+                  <code style={{ fontSize: 15, fontWeight: 800, color: "#8b5cf6", letterSpacing: 1 }}>
+                    {claim.claim_code}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyCode(claim.claim_code)}
+                    style={{ background: "none", border: "none", color: "var(--color-primary)", fontWeight: 600, fontSize: 12, cursor: "pointer" }}
+                  >
+                    Sao chép
+                  </button>
+                </div>
+
+                <div style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>
+                  Trúng lúc: {claim.awarded_at.slice(0, 16).replace("T", " ")}
+                  {claim.fulfilled_at && <span> • Đã nhận: {claim.fulfilled_at.slice(0, 16)}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
       ) : items.length === 0 ? (
         <EmptyView
           message="Bạn chưa có mã ưu đãi nào trong mục này."

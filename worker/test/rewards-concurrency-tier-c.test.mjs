@@ -258,5 +258,230 @@ test('Tier C: Live Worker + D1 Rewards, Lucky Spin & Voucher Wallet HTTP Verific
   assert.equal(csvBuffer[0], 0xEF);
   assert.equal(csvBuffer[1], 0xBB);
   assert.equal(csvBuffer[2], 0xBF);
+
+  // =========================================================================
+  // 12. P1-RWD-01: Two Users Race for Last Voucher Stock (stock = 1)
+  // =========================================================================
+  const raceCampRes = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/campaigns`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'cf-access-authenticated-user-email': 'admin@vna.vn',
+    },
+    body: JSON.stringify({
+      code: 'CAMP_RACE_' + runTag,
+      title: 'Chiến dịch Race Stock ' + runTag,
+      campaignType: 'lucky_spin',
+      totalQuota: 50,
+      eligibilityRules: { allow_free_daily: true },
+    }),
+  });
+  assert.equal(raceCampRes.status, 201);
+  const raceCamp = (await raceCampRes.json()).campaign;
+  await fetch(`${LIVE_BASE_URL}/api/admin/rewards/campaigns/${raceCamp.id}/status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({ status: 'published' }),
+  });
+
+  // Create template with strictly 1 item stock
+  const raceTplRes = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/templates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({
+      campaignId: raceCamp.id,
+      codePrefix: 'RACE-' + runTag,
+      title: 'Voucher Cuối Cùng',
+      discountDisplay: 'Giảm 50%',
+      description: 'Chỉ 1 suất duy nhất',
+      termsConditions: 'Điều khoản',
+      totalStock: 1,
+    }),
+  });
+  const raceTpl = (await raceTplRes.json()).template;
+
+  // Create wheel with 100% voucher win for seg-1 (stock 1) and no_win
+  const raceWheelRes = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/wheels`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({ campaignId: raceCamp.id, title: 'Vòng quay Race Stock' }),
+  });
+  const raceWheel = (await raceWheelRes.json()).wheel;
+
+  await fetch(`${LIVE_BASE_URL}/api/admin/rewards/wheels/${raceWheel.id}/segments`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({
+      segments: [
+        { label: 'Voucher Độc Nhất', segmentType: 'voucher', voucherTemplateId: raceTpl.id, weight: 100, totalInventory: 1 },
+        { label: 'May mắn lần sau', segmentType: 'no_win', weight: 50 },
+      ],
+    }),
+  });
+
+  await fetch(`${LIVE_BASE_URL}/api/admin/rewards/wheels/${raceWheel.id}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({ status: 'active' }),
+  });
+
+  // Both User 1 and User 2 claim daily free spin
+  await fetch(`${LIVE_BASE_URL}/api/rewards/spins/claim-daily`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token1 },
+    body: JSON.stringify({ campaignId: raceCamp.id }),
+  });
+  await fetch(`${LIVE_BASE_URL}/api/rewards/spins/claim-daily`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token2 },
+    body: JSON.stringify({ campaignId: raceCamp.id }),
+  });
+
+  // Fire simultaneous spins for User 1 and User 2
+  const [raceSpin1, raceSpin2] = await Promise.all([
+    fetch(`${LIVE_BASE_URL}/api/rewards/spins`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'idem-race-u1-' + runTag,
+        'Authorization': 'Bearer ' + token1,
+      },
+      body: JSON.stringify({ campaignId: raceCamp.id, wheelId: raceWheel.id }),
+    }),
+    fetch(`${LIVE_BASE_URL}/api/rewards/spins`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'idem-race-u2-' + runTag,
+        'Authorization': 'Bearer ' + token2,
+      },
+      body: JSON.stringify({ campaignId: raceCamp.id, wheelId: raceWheel.id }),
+    }),
+  ]);
+
+  assert.equal(raceSpin1.status, 200);
+  assert.equal(raceSpin2.status, 200);
+  const rData1 = await raceSpin1.json();
+  const rData2 = await raceSpin2.json();
+
+  // Exactly ONE winner gets the voucher! The other gets no_win (zero negative stock!)
+  const voucherWinners = [rData1.voucher, rData2.voucher].filter(Boolean);
+  assert.equal(voucherWinners.length, 1, 'Exactly one user must win the 1-stock voucher');
+
+  // =========================================================================
+  // 13. P1-RWD-02: Gift Item Claim Creation & Admin Fulfillment via HTTP
+  // =========================================================================
+  const giftCampRes = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/campaigns`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({
+      code: 'CAMP_GIFT_' + runTag,
+      title: 'Chiến dịch Quà Tặng ' + runTag,
+      campaignType: 'lucky_spin',
+      eligibilityRules: { allow_free_daily: true },
+    }),
+  });
+  const giftCamp = (await giftCampRes.json()).campaign;
+  await fetch(`${LIVE_BASE_URL}/api/admin/rewards/campaigns/${giftCamp.id}/status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({ status: 'published' }),
+  });
+
+  const giftWheelRes = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/wheels`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({ campaignId: giftCamp.id, title: 'Vòng quay Quà Tặng' }),
+  });
+  const giftWheel = (await giftWheelRes.json()).wheel;
+
+  await fetch(`${LIVE_BASE_URL}/api/admin/rewards/wheels/${giftWheel.id}/segments`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({
+      segments: [
+        { label: 'Cà phê rang xay Đắk Song', segmentType: 'gift_item', weight: 100, totalInventory: 10 },
+        { label: 'May mắn lần sau', segmentType: 'no_win', weight: 0 },
+      ],
+    }),
+  });
+
+  await fetch(`${LIVE_BASE_URL}/api/admin/rewards/wheels/${giftWheel.id}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({ status: 'active' }),
+  });
+
+  // User 1 spins and wins gift
+  await fetch(`${LIVE_BASE_URL}/api/rewards/spins/claim-daily`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token1 },
+    body: JSON.stringify({ campaignId: giftCamp.id }),
+  });
+  const giftSpinRes = await fetch(`${LIVE_BASE_URL}/api/rewards/spins`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Idempotency-Key': 'idem-gift-spin-' + runTag,
+      'Authorization': 'Bearer ' + token1,
+    },
+    body: JSON.stringify({ campaignId: giftCamp.id, wheelId: giftWheel.id }),
+  });
+  assert.equal(giftSpinRes.status, 200);
+  const giftSpinData = await giftSpinRes.json();
+  assert.equal(giftSpinData.segment.segmentType, 'gift_item');
+  assert.ok(giftSpinData.giftClaim);
+  assert.ok(giftSpinData.giftClaim.claimCode.startsWith('GIFT-'));
+
+  // User 1 reads their gift claims
+  const u1ClaimsRes = await fetch(`${LIVE_BASE_URL}/api/rewards/gift-claims`, {
+    headers: { 'Authorization': 'Bearer ' + token1 },
+  });
+  assert.equal(u1ClaimsRes.status, 200);
+  const u1Claims = await u1ClaimsRes.json();
+  assert.ok(u1Claims.claims.length >= 1);
+
+  // Admin fulfills the gift claim
+  const fulfillRes = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/gift-claims/${giftSpinData.giftClaim.id}/fulfill`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({ notes: 'Đã trao quà tại trạm Nâm Nung' }),
+  });
+  assert.equal(fulfillRes.status, 200);
+  const fulfillData = await fulfillRes.json();
+  assert.equal(fulfillData.claim.status, 'fulfilled');
+
+  // Second fulfill attempt -> 409
+  const doubleFulfill = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/gift-claims/${giftSpinData.giftClaim.id}/fulfill`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+  });
+  assert.equal(doubleFulfill.status, 409, 'Duplicate gift fulfill must return 409');
+
+  // =========================================================================
+  // 14. P1-RWD-03: Cross-User Idempotency Key Collision Rejection (403)
+  // =========================================================================
+  const crossKeyRes = await fetch(`${LIVE_BASE_URL}/api/rewards/spins`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Idempotency-Key': 'idem-gift-spin-' + runTag, // Key already used by User 1!
+      'Authorization': 'Bearer ' + token2, // User 2!
+    },
+    body: JSON.stringify({ campaignId: giftCamp.id, wheelId: giftWheel.id }),
+  });
+  assert.equal(crossKeyRes.status, 403, 'Cross-user idempotency key reuse must be rejected with 403');
+
+  // Same user reusing key with different payload -> 409
+  const payloadConflictRes = await fetch(`${LIVE_BASE_URL}/api/rewards/spins`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Idempotency-Key': 'idem-gift-spin-' + runTag,
+      'Authorization': 'Bearer ' + token1,
+    },
+    body: JSON.stringify({ campaignId: 'cmp-dak-song-2026', wheelId: giftWheel.id }),
+  });
+  assert.equal(payloadConflictRes.status, 409, 'Same key with different payload must be rejected with 409');
 });
 

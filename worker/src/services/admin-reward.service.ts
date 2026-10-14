@@ -248,6 +248,24 @@ export class AdminRewardService {
       color?: string;
     }>
   ): Promise<any> {
+    const wheel = await this.env.DB.prepare(
+      "SELECT * FROM reward_spin_wheels WHERE id = ?"
+    ).bind(wheelId).first<RewardSpinWheelRow>();
+    if (!wheel) throw new Error("Vòng quay không tồn tại");
+
+    // P2-RWD-05: Check if wheel has existing spin attempts in history
+    const spinCount = await this.env.DB.prepare(
+      "SELECT count(*) as c FROM reward_spin_attempts WHERE wheel_id = ?"
+    ).bind(wheelId).first<{ c: number }>();
+
+    if (spinCount && spinCount.c > 0) {
+      const err = new Error(
+        "Vòng quay đã có lượt quay ghi nhận trong lịch sử, không thể xóa sửa trực tiếp ô thưởng. Vui lòng nhân bản (Clone) hoặc tạo vòng quay phiên bản mới."
+      );
+      (err as any).statusCode = 409;
+      throw err;
+    }
+
     if (!Array.isArray(segments) || segments.length < 2) {
       throw new Error("Vòng quay cần có tối thiểu 2 ô thưởng");
     }
@@ -258,8 +276,23 @@ export class AdminRewardService {
     }
 
     const totalWeight = segments.reduce((sum, s) => sum + (s.weight || 0), 0);
-    if (totalWeight <= 0) {
-      throw new Error("Tổng trọng số xác suất phải lớn hơn 0");
+    if (totalWeight <= 0 || totalWeight >= 0x100000000) {
+      throw new Error("Tổng trọng số xác suất phải lớn hơn 0 và nhỏ hơn 2^32");
+    }
+
+    // Validate voucherTemplateId belongs to wheel's campaign
+    for (const s of segments) {
+      if (s.segmentType === "voucher" && s.voucherTemplateId) {
+        const tpl = await this.env.DB.prepare(
+          "SELECT id, campaign_id FROM reward_voucher_templates WHERE id = ?"
+        ).bind(s.voucherTemplateId).first<any>();
+        if (!tpl) {
+          throw new Error(`Mẫu voucher ${s.voucherTemplateId} không tồn tại`);
+        }
+        if (tpl.campaign_id && tpl.campaign_id !== wheel.campaign_id) {
+          throw new Error(`Mẫu voucher ${s.voucherTemplateId} không thuộc chiến dịch của vòng quay này`);
+        }
+      }
     }
 
     const stmts: any[] = [];
@@ -300,6 +333,54 @@ export class AdminRewardService {
     return w!;
   }
 
+  async cloneWheel(wheelId: string, newTitle?: string): Promise<any> {
+    const existing = await this.getWheelWithSegments(wheelId);
+    if (!existing || !existing.wheel) {
+      throw new Error("Vòng quay gốc không tồn tại");
+    }
+
+    const newWheelId = "wheel-" + crypto.randomUUID().slice(0, 8);
+    const title = newTitle?.trim() || `${existing.wheel.title} (Bản sao)`;
+
+    const stmts: any[] = [
+      this.env.DB.prepare(
+        `INSERT INTO reward_spin_wheels (id, campaign_id, title, description, status, cost_entitlement_count, version, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'draft', ?, 1, datetime('now'), datetime('now'))`
+      ).bind(
+        newWheelId,
+        existing.wheel.campaign_id,
+        title,
+        existing.wheel.description,
+        existing.wheel.cost_entitlement_count
+      )
+    ];
+
+    existing.segments.forEach((s: any, idx: number) => {
+      const newSegId = `seg-${newWheelId}-${idx + 1}`;
+      stmts.push(
+        this.env.DB.prepare(
+          `INSERT INTO reward_spin_segments (
+            id, wheel_id, order_index, label, segment_type, voucher_template_id,
+            weight, total_inventory, awarded_count, color, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, datetime('now'), datetime('now'))`
+        ).bind(
+          newSegId,
+          newWheelId,
+          s.order_index,
+          s.label,
+          s.segment_type,
+          s.voucher_template_id,
+          s.weight,
+          s.total_inventory,
+          s.color
+        )
+      );
+    });
+
+    await this.env.DB.batch(stmts);
+    return await this.getWheelWithSegments(newWheelId);
+  }
+
   // ==================== WALLET & REDEMPTIONS ====================
   async listWalletItems(
     page = 1,
@@ -337,7 +418,12 @@ export class AdminRewardService {
     ).bind(...params).first<any>();
 
     const itemsRes = await this.env.DB.prepare(
-      `SELECT w.*, u.email as user_email, u.display_name as user_name, c.title as campaign_title
+      `SELECT w.*,
+              CASE
+                WHEN w.status = 'issued' AND w.expires_at <= datetime('now') THEN 'expired'
+                ELSE w.status
+              END AS effective_status,
+              u.email as user_email, u.display_name as user_name, c.title as campaign_title
        FROM reward_wallet_items w
        LEFT JOIN users u ON w.user_id = u.id
        LEFT JOIN reward_campaigns c ON w.campaign_id = c.id
@@ -376,12 +462,12 @@ export class AdminRewardService {
     }
 
     if (voucher.status === "revoked") {
-      const err = new Error("Mã ưu đãi đã bị thu hồi bởi quản trị viên");
-      (err as any).statusCode = 400;
+      const err = new Error("Không thể sử dụng mã ưu đãi đã bị thu hồi");
+      (err as any).statusCode = 409;
       throw err;
     }
 
-    if (new Date() > new Date(voucher.expires_at)) {
+    if (new Date() >= new Date(voucher.expires_at) || voucher.status === "expired") {
       const err = new Error("Mã ưu đãi đã hết hạn sử dụng");
       (err as any).statusCode = 400;
       throw err;
@@ -392,7 +478,7 @@ export class AdminRewardService {
       this.env.DB.prepare(
         `UPDATE reward_wallet_items
          SET status = 'redeemed', redeemed_at = datetime('now'), updated_at = datetime('now')
-         WHERE id = ? AND status = 'issued'`
+         WHERE id = ? AND status = 'issued' AND datetime('now') < expires_at`
       ).bind(voucher.id),
       this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"),
       this.env.DB.prepare(
@@ -431,6 +517,11 @@ export class AdminRewardService {
         (err as any).statusCode = 409;
         throw err;
       }
+      if (recheck?.status === "revoked") {
+        const err = new Error("Không thể sử dụng mã ưu đãi đã bị thu hồi");
+        (err as any).statusCode = 409;
+        throw err;
+      }
       throw e;
     }
 
@@ -441,17 +532,182 @@ export class AdminRewardService {
     const voucher = await this.env.DB.prepare("SELECT * FROM reward_wallet_items WHERE id = ?").bind(voucherId).first<any>();
     if (!voucher) throw new Error("Mã ưu đãi không tồn tại");
 
-    await this.env.DB.prepare(
-      `UPDATE reward_wallet_items SET status = 'revoked', revoked_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
-    ).bind(voucherId).run();
+    if (voucher.status === "redeemed") {
+      const err = new Error("Không thể thu hồi mã ưu đãi đã được sử dụng");
+      (err as any).statusCode = 409;
+      throw err;
+    }
 
-    await this.env.DB.prepare(
-      `INSERT INTO reward_audit_events (
-        id, actor, actor_type, action, resource_type, resource_id, payload_json, created_at
-      ) VALUES (?, ?, 'admin', 'revoke_voucher', 'reward_wallet_items', ?, ?, datetime('now'))`
-    ).bind("aud-" + crypto.randomUUID(), actorEmail, voucherId, JSON.stringify({ reason })).run();
+    if (voucher.status === "revoked") {
+      const err = new Error("Mã ưu đãi đã bị thu hồi trước đó");
+      (err as any).statusCode = 409;
+      throw err;
+    }
+
+    const stmts: any[] = [
+      this.env.DB.prepare(
+        `UPDATE reward_wallet_items
+         SET status = 'revoked', revoked_at = datetime('now'), updated_at = datetime('now')
+         WHERE id = ? AND status = 'issued'`
+      ).bind(voucherId),
+      this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"),
+      this.env.DB.prepare(
+        `INSERT INTO reward_audit_events (
+          id, actor, actor_type, action, resource_type, resource_id, payload_json, created_at
+        ) VALUES (?, ?, 'admin', 'revoke_voucher', 'reward_wallet_items', ?, ?, datetime('now'))`
+      ).bind("aud-" + crypto.randomUUID(), actorEmail, voucherId, JSON.stringify({ reason })),
+      this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1")
+    ];
+
+    try {
+      await this.env.DB.batch(stmts);
+    } catch (e: any) {
+      const recheck = await this.env.DB.prepare("SELECT status FROM reward_wallet_items WHERE id = ?").bind(voucherId).first<any>();
+      if (recheck?.status === "redeemed") {
+        const err = new Error("Không thể thu hồi mã ưu đãi đã được sử dụng");
+        (err as any).statusCode = 409;
+        throw err;
+      }
+      throw e;
+    }
 
     return await this.env.DB.prepare("SELECT * FROM reward_wallet_items WHERE id = ?").bind(voucherId).first<any>();
+  }
+
+  // ==================== GIFT CLAIMS (P1-RWD-02) ====================
+  async listGiftClaims(
+    page = 1,
+    limit = 20,
+    filter: { status?: string; search?: string; campaignId?: string } = {}
+  ): Promise<any> {
+    const p = Math.max(1, page);
+    const l = Math.min(100, Math.max(1, limit));
+    const offset = (p - 1) * l;
+
+    const where: string[] = [];
+    const params: any[] = [];
+
+    if (filter.status) {
+      where.push("g.status = ?");
+      params.push(filter.status);
+    }
+    if (filter.campaignId) {
+      where.push("g.campaign_id = ?");
+      params.push(filter.campaignId);
+    }
+    if (filter.search) {
+      where.push("(g.claim_code LIKE ? OR g.title LIKE ? OR u.email LIKE ? OR u.display_name LIKE ?)");
+      const term = `%${filter.search.trim()}%`;
+      params.push(term, term, term, term);
+    }
+
+    const whereSql = where.length > 0 ? "WHERE " + where.join(" AND ") : "";
+
+    const countRes = await this.env.DB.prepare(
+      `SELECT count(*) as total
+       FROM reward_gift_claims g
+       LEFT JOIN users u ON g.user_id = u.id
+       ${whereSql}`
+    ).bind(...params).first<any>();
+
+    const itemsRes = await this.env.DB.prepare(
+      `SELECT g.*, u.email as user_email, u.display_name as user_name, c.title as campaign_title
+       FROM reward_gift_claims g
+       LEFT JOIN users u ON g.user_id = u.id
+       LEFT JOIN reward_campaigns c ON g.campaign_id = c.id
+       ${whereSql}
+       ORDER BY g.awarded_at DESC
+       LIMIT ? OFFSET ?`
+    ).bind(...params, l, offset).all<any>();
+
+    return {
+      claims: itemsRes.results || [],
+      total: countRes?.total || 0,
+      page: p,
+      limit: l,
+    };
+  }
+
+  async fulfillGiftClaim(actorEmail: string, claimIdOrCode: string, notes?: string): Promise<any> {
+    const claim = await this.env.DB.prepare(
+      "SELECT * FROM reward_gift_claims WHERE id = ? OR claim_code = ?"
+    ).bind(claimIdOrCode, claimIdOrCode).first<any>();
+
+    if (!claim) {
+      const err = new Error("Phiếu nhận quà tặng không tồn tại");
+      (err as any).statusCode = 404;
+      throw err;
+    }
+
+    if (claim.status === "fulfilled") {
+      const err = new Error("Quà tặng đã được bàn giao trước đó");
+      (err as any).statusCode = 409;
+      throw err;
+    }
+
+    if (claim.status === "revoked") {
+      const err = new Error("Phiếu nhận quà đã bị thu hồi");
+      (err as any).statusCode = 409;
+      throw err;
+    }
+
+    const stmts: any[] = [
+      this.env.DB.prepare(
+        `UPDATE reward_gift_claims
+         SET status = 'fulfilled', fulfilled_at = datetime('now'), fulfilled_by = ?, notes = ?, updated_at = datetime('now')
+         WHERE id = ? AND status = 'pending'`
+      ).bind(actorEmail, notes || "Bàn giao quà tại quầy (DEMO)", claim.id),
+      this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"),
+      this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"),
+      this.env.DB.prepare(
+        `INSERT INTO reward_audit_events (
+          id, actor, actor_type, action, resource_type, resource_id, payload_json, created_at
+        ) VALUES (?, ?, 'admin', 'fulfill_gift_claim', 'reward_gift_claims', ?, ?, datetime('now'))`
+      ).bind("aud-" + crypto.randomUUID(), actorEmail, claim.id, JSON.stringify({ claimCode: claim.claim_code }))
+    ];
+
+    try {
+      await this.env.DB.batch(stmts);
+    } catch (e: any) {
+      const recheck = await this.env.DB.prepare("SELECT status FROM reward_gift_claims WHERE id = ?").bind(claim.id).first<any>();
+      if (recheck?.status === "fulfilled") {
+        const err = new Error("Quà tặng đã được bàn giao trước đó");
+        (err as any).statusCode = 409;
+        throw err;
+      }
+      throw e;
+    }
+
+    return await this.env.DB.prepare("SELECT * FROM reward_gift_claims WHERE id = ?").bind(claim.id).first<any>();
+  }
+
+  async revokeGiftClaim(actorEmail: string, claimId: string, reason: string): Promise<any> {
+    const claim = await this.env.DB.prepare("SELECT * FROM reward_gift_claims WHERE id = ?").bind(claimId).first<any>();
+    if (!claim) throw new Error("Phiếu nhận quà không tồn tại");
+
+    if (claim.status === "fulfilled") {
+      const err = new Error("Không thể thu hồi quà tặng đã được bàn giao");
+      (err as any).statusCode = 409;
+      throw err;
+    }
+
+    const stmts: any[] = [
+      this.env.DB.prepare(
+        `UPDATE reward_gift_claims
+         SET status = 'revoked', notes = ?, updated_at = datetime('now')
+         WHERE id = ? AND status = 'pending'`
+      ).bind(reason, claimId),
+      this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"),
+      this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"),
+      this.env.DB.prepare(
+        `INSERT INTO reward_audit_events (
+          id, actor, actor_type, action, resource_type, resource_id, payload_json, created_at
+        ) VALUES (?, ?, 'admin', 'revoke_gift_claim', 'reward_gift_claims', ?, ?, datetime('now'))`
+      ).bind("aud-" + crypto.randomUUID(), actorEmail, claimId, JSON.stringify({ reason }))
+    ];
+
+    await this.env.DB.batch(stmts);
+    return await this.env.DB.prepare("SELECT * FROM reward_gift_claims WHERE id = ?").bind(claimId).first<any>();
   }
 
   // ==================== ANALYTICS & EXPORT ====================

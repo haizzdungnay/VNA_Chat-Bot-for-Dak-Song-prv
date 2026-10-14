@@ -6,6 +6,7 @@ import type {
   RewardSpinWheelRow,
   RewardSpinSegmentRow,
   RewardEntitlementRow,
+  RewardGiftClaimRow,
 } from "../types";
 import { getVietnamDateTime } from "./quiz.service";
 
@@ -14,6 +15,50 @@ async function sha256Hex(message: string): Promise<string> {
   const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * P1-RWD-03: Unified idempotency verification helper.
+ * Reused identically in pre-read and catch recovery to prevent cross-user/payload leakage.
+ */
+async function verifyAndReturnIdempotency(
+  db: any,
+  idemKey: string,
+  userId: string,
+  operation: string,
+  requestHash: string
+): Promise<any | null> {
+  const record = await db.prepare(
+    "SELECT * FROM idempotency_records WHERE idempotency_key = ?"
+  ).bind(idemKey).first();
+
+  if (!record) return null;
+
+  if (record.user_id !== userId) {
+    const err = new Error("Không có quyền truy cập dữ liệu idempotency này.");
+    (err as any).statusCode = 403;
+    throw err;
+  }
+
+  if (record.operation !== operation) {
+    const err = new Error("Trùng lặp Idempotency-Key với nghiệp vụ khác.");
+    (err as any).statusCode = 409;
+    throw err;
+  }
+
+  if (record.request_hash !== requestHash) {
+    const err = new Error("Trùng lặp Idempotency-Key với nội dung yêu cầu khác.");
+    (err as any).statusCode = 409;
+    throw err;
+  }
+
+  try {
+    return JSON.parse(record.response_json);
+  } catch {
+    const err = new Error("Dữ liệu phản hồi idempotency bị lỗi.");
+    (err as any).statusCode = 500;
+    throw err;
+  }
 }
 
 /**
@@ -57,7 +102,7 @@ export class RewardService {
     return res.results || [];
   }
 
-  async getActiveWheel(campaignId?: string): Promise<{
+  async getActiveWheel(campaignId?: string, wheelId?: string): Promise<{
     wheel: RewardSpinWheelRow | null;
     campaign: RewardCampaignRow | null;
     segments: Array<RewardSpinSegmentRow & { is_available: boolean }>;
@@ -65,7 +110,21 @@ export class RewardService {
     let wheel: RewardSpinWheelRow | null = null;
     let campaign: RewardCampaignRow | null = null;
 
-    if (campaignId) {
+    if (wheelId) {
+      wheel = await this.env.DB.prepare(
+        "SELECT * FROM reward_spin_wheels WHERE id = ?"
+      ).bind(wheelId).first<RewardSpinWheelRow>();
+
+      if (wheel) {
+        campaign = await this.env.DB.prepare(
+          "SELECT * FROM reward_campaigns WHERE id = ?"
+        ).bind(wheel.campaign_id).first<RewardCampaignRow>();
+
+        if (campaignId && campaign && campaign.id !== campaignId) {
+          return { wheel: null, campaign: null, segments: [] };
+        }
+      }
+    } else if (campaignId) {
       campaign = await this.env.DB.prepare(
         "SELECT * FROM reward_campaigns WHERE id = ? AND status = 'published'"
       ).bind(campaignId).first<RewardCampaignRow>();
@@ -98,10 +157,40 @@ export class RewardService {
       `SELECT * FROM reward_spin_segments WHERE wheel_id = ? ORDER BY order_index ASC`
     ).bind(wheel.id).all<RewardSpinSegmentRow>();
 
-    const segments = (segRes.results || []).map((s) => ({
-      ...s,
-      is_available: s.total_inventory === -1 || s.awarded_count < s.total_inventory,
-    }));
+    // P1-RWD-01: Pre-fetch voucher templates to calculate true segment availability
+    const vTplIds = (segRes.results || [])
+      .map((s) => s.voucher_template_id)
+      .filter((id): id is string => Boolean(id));
+
+    const tplMap = new Map<string, RewardVoucherTemplateRow>();
+    if (vTplIds.length > 0) {
+      const placeholders = vTplIds.map(() => "?").join(",");
+      const tpls = await this.env.DB.prepare(
+        `SELECT * FROM reward_voucher_templates WHERE id IN (${placeholders})`
+      ).bind(...vTplIds).all<RewardVoucherTemplateRow>();
+      for (const t of tpls.results || []) {
+        tplMap.set(t.id, t);
+      }
+    }
+
+    const segments = (segRes.results || []).map((s) => {
+      let isAvailable = true;
+      if (s.segment_type === "voucher") {
+        const tpl = s.voucher_template_id ? tplMap.get(s.voucher_template_id) : null;
+        const tplOk = Boolean(tpl && tpl.status === "active" && (tpl.total_stock === -1 || tpl.issued_count < tpl.total_stock));
+        const segOk = s.total_inventory === -1 || s.awarded_count < s.total_inventory;
+        isAvailable = tplOk && segOk;
+      } else if (s.segment_type === "gift_item") {
+        isAvailable = s.total_inventory === -1 || s.awarded_count < s.total_inventory;
+      } else {
+        isAvailable = true; // no_win always available
+      }
+
+      return {
+        ...s,
+        is_available: isAvailable,
+      };
+    });
 
     return { wheel, campaign, segments };
   }
@@ -126,6 +215,62 @@ export class RewardService {
       };
     }
 
+    // P1-RWD-04: Campaign schedule window check
+    const nowUtc = new Date().toISOString();
+    if (campaign.start_at > nowUtc) {
+      return {
+        canSpin: false,
+        availableTurns: 0,
+        campaign,
+        wheel,
+        dailyFreeEligible: false,
+        reason: "Chiến dịch chưa đến thời gian mở thưởng.",
+      };
+    }
+    if (campaign.end_at && campaign.end_at <= nowUtc) {
+      return {
+        canSpin: false,
+        availableTurns: 0,
+        campaign,
+        wheel,
+        dailyFreeEligible: false,
+        reason: "Chiến dịch đã kết thúc.",
+      };
+    }
+
+    // P1-RWD-04: Campaign total quota check
+    if (campaign.total_quota > 0 && (campaign.total_spins_count || 0) >= campaign.total_quota) {
+      return {
+        canSpin: false,
+        availableTurns: 0,
+        campaign,
+        wheel,
+        dailyFreeEligible: false,
+        reason: "Chiến dịch đã hết tổng số lượt phát thưởng (Quota).",
+      };
+    }
+
+    // P1-RWD-04: Per-user limit check
+    if (campaign.per_user_limit > 0) {
+      const userSpins = await this.env.DB.prepare(
+        `SELECT count(*) as c
+         FROM reward_spin_attempts rsa
+         JOIN reward_spin_wheels rsw ON rsa.wheel_id = rsw.id
+         WHERE rsa.user_id = ? AND rsw.campaign_id = ? AND rsa.status = 'completed'`
+      ).bind(userId, campaign.id).first<{ c: number }>();
+
+      if (userSpins && userSpins.c >= campaign.per_user_limit) {
+        return {
+          canSpin: false,
+          availableTurns: 0,
+          campaign,
+          wheel,
+          dailyFreeEligible: false,
+          reason: `Bạn đã đạt giới hạn tối đa ${campaign.per_user_limit} lượt quay của chiến dịch này.`,
+        };
+      }
+    }
+
     // Sum unconsumed entitlement turns
     const entRes = await this.env.DB.prepare(
       `SELECT COALESCE(SUM(total_granted - consumed_count), 0) as available_turns
@@ -144,7 +289,7 @@ export class RewardService {
 
     if (rules.allow_free_daily) {
       const vnDate = getVietnamDateTime().dateStr;
-      const todayDailyKey = `free_daily:${vnDate}`;
+      const todayDailyKey = `free_daily:${campaign.id}:${vnDate}`;
       const existingDaily = await this.env.DB.prepare(
         `SELECT id FROM reward_entitlements WHERE user_id = ? AND source_event_key = ?`
       ).bind(userId, todayDailyKey).first();
@@ -190,7 +335,7 @@ export class RewardService {
     }
 
     const vnDate = getVietnamDateTime().dateStr;
-    const sourceKey = `free_daily:${vnDate}`;
+    const sourceKey = `free_daily:${campaign.id}:${vnDate}`;
 
     // Idempotent check
     const existing = await this.env.DB.prepare(
@@ -207,7 +352,8 @@ export class RewardService {
     }
 
     const entitlementId = "ent-daily-" + crypto.randomUUID();
-    const expiresAt = `${vnDate} 23:59:59`;
+    // P1-RWD-04: Convert end of Vietnam business date (+07:00) into ISO UTC string
+    const expiresAt = new Date(`${vnDate}T23:59:59+07:00`).toISOString();
 
     try {
       await this.env.DB.prepare(
@@ -340,7 +486,15 @@ export class RewardService {
     userId: string,
     input: { wheelId?: string; campaignId?: string; idempotencyKey?: string } = {}
   ): Promise<any> {
-    const idemKey = input.idempotencyKey?.trim() || null;
+    // P1-RWD-03: Mandatory & strictly validated Idempotency-Key
+    const rawKey = input.idempotencyKey?.trim();
+    if (!rawKey || typeof rawKey !== "string" || rawKey.length < 8 || rawKey.length > 128 || !/^[a-zA-Z0-9_\-]+$/.test(rawKey)) {
+      const err = new Error("Idempotency-Key không hợp lệ hoặc bị thiếu (yêu cầu chuỗi 8-128 ký tự alnum/gạch).");
+      (err as any).statusCode = 400;
+      throw err;
+    }
+    const idemKey = rawKey;
+
     const requestPayload = JSON.stringify({
       userId,
       wheelId: input.wheelId || null,
@@ -348,33 +502,67 @@ export class RewardService {
     });
     const requestHash = await sha256Hex(requestPayload);
 
-    // 1. Idempotency check in idempotency_records
-    if (idemKey) {
-      const record = await this.env.DB.prepare(
-        `SELECT * FROM idempotency_records WHERE idempotency_key = ?`
-      ).bind(idemKey).first<any>();
-
-      if (record) {
-        if (record.user_id !== userId) {
-          const err = new Error("Không có quyền truy cập dữ liệu idempotency này.");
-          (err as any).statusCode = 403;
-          throw err;
-        }
-        if (record.request_hash !== requestHash) {
-          const err = new Error("Trùng lặp Idempotency-Key với nội dung yêu cầu khác.");
-          (err as any).statusCode = 409;
-          throw err;
-        }
-        return JSON.parse(record.response_json);
-      }
+    // 1. Pre-read Idempotency check with unified owner and payload verification
+    const existingResult = await verifyAndReturnIdempotency(
+      this.env.DB,
+      idemKey,
+      userId,
+      "execute_spin",
+      requestHash
+    );
+    if (existingResult) {
+      return existingResult;
     }
 
-    // 2. Fetch wheel & campaign
-    const { wheel, campaign, segments } = await this.getActiveWheel(input.campaignId);
+    // 2. Fetch & resolve wheel & campaign (P1-RWD-04)
+    const { wheel, campaign, segments } = await this.getActiveWheel(input.campaignId, input.wheelId);
     if (!wheel || !campaign) {
-      const err = new Error("Vòng quay may mắn hiện không mở.");
+      const err = new Error(
+        input.wheelId ? "Vòng quay được chỉ định không tồn tại hoặc chưa kích hoạt." : "Vòng quay may mắn hiện không mở."
+      );
       (err as any).statusCode = 404;
       throw err;
+    }
+
+    if (wheel.status !== "active") {
+      const err = new Error("Vòng quay may mắn đã tạm dừng hoặc chưa được kích hoạt.");
+      (err as any).statusCode = 400;
+      throw err;
+    }
+
+    if (campaign.status !== "published") {
+      const err = new Error("Chiến dịch ưu đãi đã tạm dừng hoặc đóng cửa.");
+      (err as any).statusCode = 400;
+      throw err;
+    }
+
+    // P1-RWD-04: Schedule Window Enforcement
+    const nowUtc = new Date().toISOString();
+    if (campaign.start_at > nowUtc) {
+      const err = new Error("Chiến dịch chưa đến thời gian mở thưởng.");
+      (err as any).statusCode = 400;
+      throw err;
+    }
+    if (campaign.end_at && campaign.end_at <= nowUtc) {
+      const err = new Error("Chiến dịch ưu đãi đã kết thúc.");
+      (err as any).statusCode = 400;
+      throw err;
+    }
+
+    // P1-RWD-04: Per-User Limit Enforcement
+    if (campaign.per_user_limit > 0) {
+      const userSpins = await this.env.DB.prepare(
+        `SELECT count(*) as c
+         FROM reward_spin_attempts rsa
+         JOIN reward_spin_wheels rsw ON rsa.wheel_id = rsw.id
+         WHERE rsa.user_id = ? AND rsw.campaign_id = ? AND rsa.status = 'completed'`
+      ).bind(userId, campaign.id).first<{ c: number }>();
+
+      if (userSpins && userSpins.c >= campaign.per_user_limit) {
+        const err = new Error(`Bạn đã đạt giới hạn tối đa ${campaign.per_user_limit} lượt quay trong chiến dịch này.`);
+        (err as any).statusCode = 403;
+        throw err;
+      }
     }
 
     // 3. Find available entitlement or auto-grant daily free turn
@@ -389,7 +577,8 @@ export class RewardService {
     let autoGrantedDaily = false;
     let newDailyEntId: string | null = null;
     const vnDate = getVietnamDateTime().dateStr;
-    const dailyKey = `free_daily:${vnDate}`;
+    const dailyKey = `free_daily:${campaign.id}:${vnDate}`;
+    const dailyExpiresAtUtc = new Date(`${vnDate}T23:59:59+07:00`).toISOString();
 
     if (!entitlement) {
       let rules: any = {};
@@ -415,12 +604,18 @@ export class RewardService {
       }
     }
 
-    // 4. Select segment via rejection-sampled Web Crypto weighted selection
+    // 4. P1-RWD-01: Filter candidates that TRULY have active template and available inventory
     const candidateSegments = segments.filter((s) => s.is_available && s.weight > 0);
     let chosenSegment: (RewardSpinSegmentRow & { is_available: boolean }) | null = null;
 
     if (candidateSegments.length === 0) {
-      chosenSegment = segments.find((s) => s.segment_type === "no_win") || segments[0];
+      // P1-RWD-01: Never fallback to segment[0] if it's an unstocked voucher/gift!
+      chosenSegment = segments.find((s) => s.segment_type === "no_win") || null;
+      if (!chosenSegment) {
+        const err = new Error("Kho giải thưởng của vòng quay hiện đã tạm hết.");
+        (err as any).statusCode = 422;
+        throw err;
+      }
     } else {
       const weights = candidateSegments.map((s) => s.weight);
       const chosenIdx = selectWeightedSegmentIndex(weights);
@@ -431,6 +626,19 @@ export class RewardService {
     const spinAttemptId = "spin-" + crypto.randomUUID();
     const stmts: any[] = [];
 
+    // P1-RWD-04: Atomic Campaign Total Quota Guard
+    if (campaign.total_quota > 0) {
+      stmts.push(
+        this.env.DB.prepare(
+          `UPDATE reward_campaigns
+           SET total_spins_count = total_spins_count + 1, updated_at = datetime('now')
+           WHERE id = ? AND total_spins_count < total_quota`
+        ).bind(campaign.id)
+      );
+      stmts.push(this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"));
+      stmts.push(this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"));
+    }
+
     // If auto-granting daily entitlement, insert it first in the batch
     if (autoGrantedDaily && newDailyEntId) {
       stmts.push(
@@ -438,7 +646,7 @@ export class RewardService {
           `INSERT INTO reward_entitlements (
             id, user_id, campaign_id, grant_type, source_event_key, total_granted, consumed_count, expires_at, created_at, updated_at
           ) VALUES (?, ?, ?, 'free_daily', ?, 1, 0, ?, datetime('now'), datetime('now'))`
-        ).bind(newDailyEntId, userId, campaign.id, dailyKey, `${vnDate} 23:59:59`)
+        ).bind(newDailyEntId, userId, campaign.id, dailyKey, dailyExpiresAtUtc)
       );
     }
 
@@ -456,86 +664,117 @@ export class RewardService {
 
     let voucherDetail: any = null;
     let voucherId: string | null = null;
+    let giftClaimDetail: any = null;
 
-    if (chosenSegment.segment_type === "voucher" && chosenSegment.voucher_template_id) {
+    // P1-RWD-01: Guaranteed voucher issuance & atomic CAS
+    if (chosenSegment.segment_type === "voucher") {
+      if (!chosenSegment.voucher_template_id) {
+        throw new Error("Cấu hình ô thưởng bị lỗi: thiếu mẫu voucher.");
+      }
+
       const tpl = await this.env.DB.prepare(
         `SELECT * FROM reward_voucher_templates WHERE id = ?`
       ).bind(chosenSegment.voucher_template_id).first<RewardVoucherTemplateRow>();
 
-      if (tpl && tpl.status === "active" && (tpl.total_stock === -1 || tpl.issued_count < tpl.total_stock)) {
-        voucherId = "vouch-" + crypto.randomUUID();
-        const randCodeSuffix = crypto.randomUUID().slice(0, 8).toUpperCase();
-        const voucherCode = `${tpl.code_prefix}-${randCodeSuffix}`;
-        const validityDays = tpl.validity_days || 30;
-        const expiresAt = new Date(Date.now() + validityDays * 86400000).toISOString();
-
-        // Snapshot terms & conditions
-        const termsSnapshot = JSON.stringify({
-          templateId: tpl.id,
-          codePrefix: tpl.code_prefix,
-          discountDisplay: tpl.discount_display,
-          discountType: tpl.discount_type,
-          discountValue: tpl.discount_value,
-          minOrderValue: tpl.min_order_value,
-          category: tpl.category,
-          terms: tpl.terms_conditions,
-          validityDays,
-          demoNotice: "Voucher thử nghiệm (DEMO), không có giá trị thanh toán tiền mặt.",
-        });
-
-        stmts.push(
-          this.env.DB.prepare(
-            `INSERT INTO reward_wallet_items (
-              id, user_id, template_id, campaign_id, voucher_code, title, discount_display,
-              category, terms_conditions_snapshot, status, source_type, source_reference_id,
-              issued_at, expires_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued', 'lucky_spin', ?, datetime('now'), ?, datetime('now'), datetime('now'))`
-          ).bind(
-            voucherId,
-            userId,
-            tpl.id,
-            campaign.id,
-            voucherCode,
-            tpl.title,
-            tpl.discount_display,
-            tpl.category,
-            termsSnapshot,
-            spinAttemptId,
-            expiresAt
-          )
-        );
-
-        // Increment template issued count
-        stmts.push(
-          this.env.DB.prepare(
-            `UPDATE reward_voucher_templates
-             SET issued_count = issued_count + 1, updated_at = datetime('now')
-             WHERE id = ? AND (total_stock = -1 OR issued_count < total_stock)`
-          ).bind(tpl.id)
-        );
-        stmts.push(this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"));
-        stmts.push(this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"));
-
-        // Increment segment inventory if finite
-        stmts.push(
-          this.env.DB.prepare(
-            `UPDATE reward_spin_segments
-             SET awarded_count = awarded_count + 1, updated_at = datetime('now')
-             WHERE id = ? AND (total_inventory = -1 OR awarded_count < total_inventory)`
-          ).bind(chosenSegment.id)
-        );
-        stmts.push(this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"));
-        stmts.push(this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"));
-
-        voucherDetail = {
-          id: voucherId,
-          code: voucherCode,
-          title: tpl.title,
-          discountDisplay: tpl.discount_display,
-          category: tpl.category,
-          expiresAt,
-        };
+      if (!tpl || tpl.status !== "active" || (tpl.total_stock !== -1 && tpl.issued_count >= tpl.total_stock)) {
+        const err = new Error("Voucher này đã hết lượt phát hành.");
+        (err as any).statusCode = 409;
+        throw err;
       }
+
+      voucherId = "vouch-" + crypto.randomUUID();
+      const randCodeSuffix = crypto.randomUUID().slice(0, 8).toUpperCase();
+      const voucherCode = `${tpl.code_prefix}-${randCodeSuffix}`;
+      const validityDays = tpl.validity_days || 30;
+      const expiresAt = new Date(Date.now() + validityDays * 86400000).toISOString();
+
+      const termsSnapshot = JSON.stringify({
+        templateId: tpl.id,
+        codePrefix: tpl.code_prefix,
+        discountDisplay: tpl.discount_display,
+        discountType: tpl.discount_type,
+        discountValue: tpl.discount_value,
+        minOrderValue: tpl.min_order_value,
+        category: tpl.category,
+        terms: tpl.terms_conditions,
+        validityDays,
+        demoNotice: "Voucher thử nghiệm (DEMO), không có giá trị thanh toán tiền mặt.",
+      });
+
+      stmts.push(
+        this.env.DB.prepare(
+          `INSERT INTO reward_wallet_items (
+            id, user_id, template_id, campaign_id, voucher_code, title, discount_display,
+            category, terms_conditions_snapshot, status, source_type, source_reference_id,
+            issued_at, expires_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued', 'lucky_spin', ?, datetime('now'), ?, datetime('now'), datetime('now'))`
+        ).bind(
+          voucherId,
+          userId,
+          tpl.id,
+          campaign.id,
+          voucherCode,
+          tpl.title,
+          tpl.discount_display,
+          tpl.category,
+          termsSnapshot,
+          spinAttemptId,
+          expiresAt
+        )
+      );
+
+      // Increment template issued count with CAS guard
+      stmts.push(
+        this.env.DB.prepare(
+          `UPDATE reward_voucher_templates
+           SET issued_count = issued_count + 1, updated_at = datetime('now')
+           WHERE id = ? AND status = 'active' AND (total_stock = -1 OR issued_count < total_stock)`
+        ).bind(tpl.id)
+      );
+      stmts.push(this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"));
+      stmts.push(this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"));
+
+      // Increment segment inventory with CAS guard
+      stmts.push(
+        this.env.DB.prepare(
+          `UPDATE reward_spin_segments
+           SET awarded_count = awarded_count + 1, updated_at = datetime('now')
+           WHERE id = ? AND (total_inventory = -1 OR awarded_count < total_inventory)`
+        ).bind(chosenSegment.id)
+      );
+      stmts.push(this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"));
+      stmts.push(this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"));
+
+      voucherDetail = {
+        id: voucherId,
+        code: voucherCode,
+        title: tpl.title,
+        discountDisplay: tpl.discount_display,
+        category: tpl.category,
+        expiresAt,
+      };
+    } else if (chosenSegment.segment_type === "gift_item") {
+      // P1-RWD-02: Guaranteed gift claim creation & atomic segment inventory debit
+      const claimId = "gift-" + crypto.randomUUID();
+      const claimCode = "GIFT-" + crypto.randomUUID().slice(0, 8).toUpperCase();
+
+      // Increment segment inventory with CAS guard
+      stmts.push(
+        this.env.DB.prepare(
+          `UPDATE reward_spin_segments
+           SET awarded_count = awarded_count + 1, updated_at = datetime('now')
+           WHERE id = ? AND (total_inventory = -1 OR awarded_count < total_inventory)`
+        ).bind(chosenSegment.id)
+      );
+      stmts.push(this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"));
+      stmts.push(this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"));
+
+      giftClaimDetail = {
+        id: claimId,
+        claimCode,
+        title: chosenSegment.label,
+        status: "pending",
+      };
     }
 
     const snapshot = JSON.stringify({
@@ -543,6 +782,7 @@ export class RewardService {
       label: chosenSegment.label,
       segmentType: chosenSegment.segment_type,
       voucher: voucherDetail,
+      giftClaim: giftClaimDetail,
     });
 
     stmts.push(
@@ -564,6 +804,28 @@ export class RewardService {
       )
     );
 
+    // P1-RWD-02: Insert gift claim AFTER reward_spin_attempts to satisfy FK constraint
+    if (chosenSegment.segment_type === "gift_item" && giftClaimDetail) {
+      stmts.push(
+        this.env.DB.prepare(
+          `INSERT INTO reward_gift_claims (
+            id, user_id, campaign_id, wheel_id, segment_id, spin_attempt_id, claim_code,
+            title, description, status, awarded_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now'), datetime('now'), datetime('now'))`
+        ).bind(
+          giftClaimDetail.id,
+          userId,
+          campaign.id,
+          wheel.id,
+          chosenSegment.id,
+          spinAttemptId,
+          giftClaimDetail.claimCode,
+          chosenSegment.label,
+          "Quà lưu niệm nhận tại quầy thông tin du lịch Đắk Song (DEMO)"
+        )
+      );
+    }
+
     const responseData = {
       success: true,
       spinAttemptId,
@@ -575,36 +837,38 @@ export class RewardService {
         color: chosenSegment.color,
       },
       voucher: voucherDetail,
+      giftClaim: giftClaimDetail,
     };
 
-    if (idemKey) {
-      stmts.push(
-        this.env.DB.prepare(
-          `INSERT INTO idempotency_records (
-            id, user_id, operation, idempotency_key, resource_id, request_hash, response_json, created_at
-          ) VALUES (?, ?, 'execute_spin', ?, ?, ?, ?, datetime('now'))`
-        ).bind(
-          "idem-" + crypto.randomUUID(),
-          userId,
-          idemKey,
-          spinAttemptId,
-          requestHash,
-          JSON.stringify(responseData)
-        )
-      );
-    }
+    stmts.push(
+      this.env.DB.prepare(
+        `INSERT INTO idempotency_records (
+          id, user_id, operation, idempotency_key, resource_id, request_hash, response_json, created_at
+        ) VALUES (?, ?, 'execute_spin', ?, ?, ?, ?, datetime('now'))`
+      ).bind(
+        "idem-" + crypto.randomUUID(),
+        userId,
+        idemKey,
+        spinAttemptId,
+        requestHash,
+        JSON.stringify(responseData)
+      )
+    );
 
     // Execute atomic batch
     try {
       await this.env.DB.batch(stmts);
     } catch (batchErr: any) {
-      if (idemKey) {
-        const record = await this.env.DB.prepare(
-          `SELECT response_json FROM idempotency_records WHERE idempotency_key = ?`
-        ).bind(idemKey).first<any>();
-        if (record) {
-          return JSON.parse(record.response_json);
-        }
+      // P1-RWD-03: Catch recovery uses the exact unified owner/payload verification helper!
+      const recovered = await verifyAndReturnIdempotency(
+        this.env.DB,
+        idemKey,
+        userId,
+        "execute_spin",
+        requestHash
+      );
+      if (recovered) {
+        return recovered;
       }
       throw batchErr;
     }
@@ -626,8 +890,14 @@ export class RewardService {
     const params: any[] = [userId];
 
     if (statusFilter && ["issued", "redeemed", "expired", "revoked"].includes(statusFilter)) {
-      whereClause += " AND status = ?";
-      params.push(statusFilter);
+      if (statusFilter === "expired") {
+        whereClause += " AND (status = 'expired' OR (status = 'issued' AND expires_at <= datetime('now')))";
+      } else if (statusFilter === "issued") {
+        whereClause += " AND status = 'issued' AND expires_at > datetime('now')";
+      } else {
+        whereClause += " AND status = ?";
+        params.push(statusFilter);
+      }
     }
 
     const countRes = await this.env.DB.prepare(
@@ -635,7 +905,12 @@ export class RewardService {
     ).bind(...params).first<any>();
 
     const itemsRes = await this.env.DB.prepare(
-      `SELECT w.*, c.title as campaign_title
+      `SELECT w.*,
+              CASE
+                WHEN w.status = 'issued' AND w.expires_at <= datetime('now') THEN 'expired'
+                ELSE w.status
+              END AS effective_status,
+              c.title as campaign_title
        FROM reward_wallet_items w
        LEFT JOIN reward_campaigns c ON w.campaign_id = c.id
        ${whereClause}
@@ -653,7 +928,12 @@ export class RewardService {
 
   async getWalletItemDetail(userId: string, itemId: string): Promise<any | null> {
     const item = await this.env.DB.prepare(
-      `SELECT w.*, c.title as campaign_title
+      `SELECT w.*,
+              CASE
+                WHEN w.status = 'issued' AND w.expires_at <= datetime('now') THEN 'expired'
+                ELSE w.status
+              END AS effective_status,
+              c.title as campaign_title
        FROM reward_wallet_items w
        LEFT JOIN reward_campaigns c ON w.campaign_id = c.id
        WHERE w.id = ?`
@@ -667,6 +947,13 @@ export class RewardService {
     }
 
     return item;
+  }
+
+  async getUserGiftClaims(userId: string): Promise<RewardGiftClaimRow[]> {
+    const res = await this.env.DB.prepare(
+      `SELECT * FROM reward_gift_claims WHERE user_id = ? ORDER BY awarded_at DESC`
+    ).bind(userId).all<RewardGiftClaimRow>();
+    return res.results || [];
   }
 
   async getSpinHistory(userId: string, page = 1, limit = 20): Promise<any> {

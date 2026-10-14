@@ -668,6 +668,7 @@ export interface RewardCampaignRow {
   end_at: string | null;
   total_quota: number;
   per_user_limit: number;
+  total_spins_count: number;
   eligibility_rules_json: string;
   version: number;
   created_by: string;
@@ -793,4 +794,25 @@ export interface RewardAuditEventRow {
   resource_id: string;
   payload_json: string | null;
   created_at: string;
+}
+
+export type RewardGiftClaimStatus = "pending" | "fulfilled" | "revoked";
+
+export interface RewardGiftClaimRow {
+  id: string;
+  user_id: string;
+  campaign_id: string;
+  wheel_id: string;
+  segment_id: string;
+  spin_attempt_id: string;
+  claim_code: string;
+  title: string;
+  description: string | null;
+  status: RewardGiftClaimStatus;
+  awarded_at: string;
+  fulfilled_at: string | null;
+  fulfilled_by: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
 }

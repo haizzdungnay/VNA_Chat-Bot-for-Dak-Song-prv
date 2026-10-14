@@ -131,6 +131,21 @@ export const RewardSpinsPage: React.FC<Props> = ({ onNotify }) => {
     }
   };
 
+  const handleCloneWheel = async (wheelId: string) => {
+    const title = window.prompt("Nhập tiêu đề cho vòng quay phiên bản mới (Bản sao):");
+    if (title === null) return;
+    try {
+      const res = await adminApi.cloneRewardWheel(wheelId, title.trim() || undefined);
+      onNotify?.("success", "Nhân bản vòng quay thành công!");
+      await loadWheels();
+      if (res?.wheel?.id) {
+        setSelectedWheelId(res.wheel.id);
+      }
+    } catch (err: any) {
+      onNotify?.("error", err?.message || "Lỗi khi nhân bản vòng quay");
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {/* Wheels Selector Header */}
@@ -162,6 +177,14 @@ export const RewardSpinsPage: React.FC<Props> = ({ onNotify }) => {
                 title="Bật / Tắt trạng thái"
               >
                 {w.status === "active" ? "Tạm dừng" : "Kích hoạt"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline btn-xs"
+                onClick={() => handleCloneWheel(w.id)}
+                title="Nhân bản vòng quay (Clone)"
+              >
+                Nhân bản
               </button>
               </div>
             ))}

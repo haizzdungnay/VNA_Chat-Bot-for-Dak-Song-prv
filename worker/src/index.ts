@@ -42,6 +42,7 @@ import {
   rewardClaimQuizRewardRoute,
   rewardExecuteSpinRoute,
   rewardSpinHistoryRoute,
+  rewardGiftClaimsRoute,
 } from "./routes/rewards";
 import {
   adminRewardCampaignsListRoute,
@@ -57,6 +58,10 @@ import {
   adminRewardWheelCreateRoute,
   adminRewardWheelSegmentsRoute,
   adminRewardWheelStatusRoute,
+  adminRewardWheelCloneRoute,
+  adminRewardGiftClaimsListRoute,
+  adminRewardGiftClaimFulfillRoute,
+  adminRewardGiftClaimRevokeRoute,
   adminRewardWalletListRoute,
   adminRewardVoucherRedeemRoute,
   adminRewardVoucherRevokeRoute,
@@ -246,6 +251,7 @@ router.post("/api/rewards/spins/claim-daily", rewardClaimDailySpinRoute);
 router.post("/api/rewards/spins/claim-quiz", rewardClaimQuizRewardRoute);
 router.post("/api/rewards/spins", rewardExecuteSpinRoute);
 router.get("/api/rewards/spins/history", rewardSpinHistoryRoute);
+router.get("/api/rewards/gift-claims", rewardGiftClaimsRoute);
 
 // Phase 8.5 Admin Rewards & Lucky Spin Routes
 router.get("/api/admin/rewards/campaigns", adminRewardCampaignsListRoute);
@@ -261,6 +267,10 @@ router.get("/api/admin/rewards/wheels/:id", adminRewardWheelDetailRoute);
 router.post("/api/admin/rewards/wheels", adminRewardWheelCreateRoute);
 router.put("/api/admin/rewards/wheels/:id/segments", adminRewardWheelSegmentsRoute);
 router.put("/api/admin/rewards/wheels/:id/status", adminRewardWheelStatusRoute);
+router.post("/api/admin/rewards/wheels/:id/clone", adminRewardWheelCloneRoute);
+router.get("/api/admin/rewards/gift-claims", adminRewardGiftClaimsListRoute);
+router.post("/api/admin/rewards/gift-claims/:id/fulfill", adminRewardGiftClaimFulfillRoute);
+router.post("/api/admin/rewards/gift-claims/:id/revoke", adminRewardGiftClaimRevokeRoute);
 router.get("/api/admin/rewards/wallet", adminRewardWalletListRoute);
 router.post("/api/admin/rewards/wallet/:id/redeem", adminRewardVoucherRedeemRoute);
 router.post("/api/admin/rewards/wallet/:id/revoke", adminRewardVoucherRevokeRoute);

@@ -24,6 +24,7 @@ import type {
   AdminRewardSpinSegment,
   AdminRewardWalletItem,
   AdminRewardAnalytics,
+  AdminRewardGiftClaim,
 } from "../types";
 
 export class AdminApiError extends Error {
@@ -479,6 +480,14 @@ export const adminApi = {
     });
   },
 
+  cloneRewardWheel(wheelId: string, title?: string): Promise<{ wheel: AdminRewardSpinWheel; segments: AdminRewardSpinSegment[] }> {
+    return request("/api/admin/rewards/wheels/" + encodeURIComponent(wheelId) + "/clone", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+  },
+
   getRewardWalletItems(filters?: { page?: number; limit?: number; status?: string; search?: string; campaignId?: string }): Promise<{ items: AdminRewardWalletItem[]; total: number; page: number; limit: number }> {
     const params = new URLSearchParams();
     if (filters?.page) params.set("page", String(filters.page));
@@ -499,6 +508,32 @@ export const adminApi = {
 
   revokeRewardVoucher(voucherId: string, reason: string): Promise<{ success: boolean; voucher: AdminRewardWalletItem }> {
     return request("/api/admin/rewards/wallet/" + encodeURIComponent(voucherId) + "/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  getRewardGiftClaims(filters?: { page?: number; limit?: number; status?: string; search?: string; campaignId?: string }): Promise<{ claims: AdminRewardGiftClaim[]; total: number; page: number; limit: number }> {
+    const params = new URLSearchParams();
+    if (filters?.page) params.set("page", String(filters.page));
+    if (filters?.limit) params.set("limit", String(filters.limit));
+    if (filters?.status) params.set("status", filters.status);
+    if (filters?.search) params.set("search", filters.search);
+    if (filters?.campaignId) params.set("campaignId", filters.campaignId);
+    return request("/api/admin/rewards/gift-claims?" + params.toString());
+  },
+
+  fulfillRewardGiftClaim(claimId: string, notes?: string): Promise<{ success: boolean; claim: AdminRewardGiftClaim }> {
+    return request("/api/admin/rewards/gift-claims/" + encodeURIComponent(claimId) + "/fulfill", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes }),
+    });
+  },
+
+  revokeRewardGiftClaim(claimId: string, reason: string): Promise<{ success: boolean; claim: AdminRewardGiftClaim }> {
+    return request("/api/admin/rewards/gift-claims/" + encodeURIComponent(claimId) + "/revoke", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reason }),

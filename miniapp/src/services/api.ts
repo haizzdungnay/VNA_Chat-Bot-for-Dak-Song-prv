@@ -10,6 +10,7 @@ import type { Category, Place, Article, ChatRequest, ChatResponse, AuthUser, Pla
   RewardSpinResult,
   RewardSpinSegment,
   RewardSpinWheel,
+  RewardGiftClaim,
 } from "../types";
 import { STORAGE_KEY_AUTH_TOKEN } from "../constants";
 import { safeStorage } from "./storage";
@@ -458,6 +459,11 @@ export const api = {
   async getSpinHistory(page = 1, limit = 20): Promise<{ history: any[]; total: number; page: number; limit: number }> {
     const res = await safeFetch("/api/rewards/spins/history?page=" + page + "&limit=" + limit);
     return handleResponse<{ history: any[]; total: number; page: number; limit: number }>(res);
+  },
+
+  async getGiftClaims(): Promise<{ claims: RewardGiftClaim[] }> {
+    const res = await safeFetch("/api/rewards/gift-claims");
+    return handleResponse<{ claims: RewardGiftClaim[] }>(res);
   },
 };
 
