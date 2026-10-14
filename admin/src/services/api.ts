@@ -18,6 +18,12 @@ import type {
   AdminQuizCollection,
   AdminQuizChallenge,
   AdminQuizAnalytics,
+  AdminRewardCampaign,
+  AdminRewardVoucherTemplate,
+  AdminRewardSpinWheel,
+  AdminRewardSpinSegment,
+  AdminRewardWalletItem,
+  AdminRewardAnalytics,
 } from "../types";
 
 export class AdminApiError extends Error {
@@ -382,5 +388,128 @@ export const adminApi = {
     if (startDate) params.set("startDate", startDate);
     if (endDate) params.set("endDate", endDate);
     return getApiBaseUrl() + "/api/admin/quiz/export?" + params.toString();
+  },
+
+  // ==================== PHASE 8.5 REWARD & LUCKY SPIN ====================
+  getRewardCampaigns(page = 1, limit = 20, status?: string): Promise<{ campaigns: AdminRewardCampaign[]; total: number; page: number; limit: number }> {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (status) params.set("status", status);
+    return request("/api/admin/rewards/campaigns?" + params.toString());
+  },
+
+  getRewardCampaignDetail(id: string): Promise<{ campaign: AdminRewardCampaign }> {
+    return request("/api/admin/rewards/campaigns/" + encodeURIComponent(id));
+  },
+
+  createRewardCampaign(payload: any): Promise<{ campaign: AdminRewardCampaign }> {
+    return request("/api/admin/rewards/campaigns", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  updateRewardCampaign(id: string, payload: any): Promise<{ campaign: AdminRewardCampaign }> {
+    return request("/api/admin/rewards/campaigns/" + encodeURIComponent(id), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  setRewardCampaignStatus(id: string, status: string): Promise<{ campaign: AdminRewardCampaign }> {
+    return request("/api/admin/rewards/campaigns/" + encodeURIComponent(id) + "/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  getRewardTemplates(campaignId?: string): Promise<{ templates: AdminRewardVoucherTemplate[] }> {
+    const q = campaignId ? "?campaignId=" + encodeURIComponent(campaignId) : "";
+    return request("/api/admin/rewards/templates" + q);
+  },
+
+  createRewardTemplate(payload: any): Promise<{ template: AdminRewardVoucherTemplate }> {
+    return request("/api/admin/rewards/templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  toggleRewardTemplate(id: string, status: string): Promise<{ template: AdminRewardVoucherTemplate }> {
+    return request("/api/admin/rewards/templates/" + encodeURIComponent(id) + "/status", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  getRewardWheels(campaignId?: string): Promise<{ wheels: AdminRewardSpinWheel[] }> {
+    const q = campaignId ? "?campaignId=" + encodeURIComponent(campaignId) : "";
+    return request("/api/admin/rewards/wheels" + q);
+  },
+
+  getRewardWheelDetail(id: string): Promise<{ wheel: AdminRewardSpinWheel; segments: AdminRewardSpinSegment[] }> {
+    return request("/api/admin/rewards/wheels/" + encodeURIComponent(id));
+  },
+
+  createRewardWheel(payload: any): Promise<{ wheel: AdminRewardSpinWheel }> {
+    return request("/api/admin/rewards/wheels", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  setRewardWheelSegments(wheelId: string, segments: any[]): Promise<{ wheel: AdminRewardSpinWheel; segments: AdminRewardSpinSegment[] }> {
+    return request("/api/admin/rewards/wheels/" + encodeURIComponent(wheelId) + "/segments", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ segments }),
+    });
+  },
+
+  toggleRewardWheelStatus(wheelId: string, status: string): Promise<{ wheel: AdminRewardSpinWheel }> {
+    return request("/api/admin/rewards/wheels/" + encodeURIComponent(wheelId) + "/status", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  getRewardWalletItems(filters?: { page?: number; limit?: number; status?: string; search?: string; campaignId?: string }): Promise<{ items: AdminRewardWalletItem[]; total: number; page: number; limit: number }> {
+    const params = new URLSearchParams();
+    if (filters?.page) params.set("page", String(filters.page));
+    if (filters?.limit) params.set("limit", String(filters.limit));
+    if (filters?.status) params.set("status", filters.status);
+    if (filters?.search) params.set("search", filters.search);
+    if (filters?.campaignId) params.set("campaignId", filters.campaignId);
+    return request("/api/admin/rewards/wallet?" + params.toString());
+  },
+
+  redeemRewardVoucher(voucherId: string, payload?: { reason?: string; notes?: string; idempotencyKey?: string }): Promise<{ success: boolean; voucher: AdminRewardWalletItem }> {
+    return request("/api/admin/rewards/wallet/" + encodeURIComponent(voucherId) + "/redeem", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {}),
+    });
+  },
+
+  revokeRewardVoucher(voucherId: string, reason: string): Promise<{ success: boolean; voucher: AdminRewardWalletItem }> {
+    return request("/api/admin/rewards/wallet/" + encodeURIComponent(voucherId) + "/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  getRewardAnalytics(): Promise<{ analytics: AdminRewardAnalytics }> {
+    return request("/api/admin/rewards/analytics");
+  },
+
+  getRewardExportUrl(): string {
+    return getApiBaseUrl() + "/api/admin/rewards/export";
   },
 };

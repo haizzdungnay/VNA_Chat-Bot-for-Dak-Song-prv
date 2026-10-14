@@ -644,3 +644,153 @@ export interface QuizUserStatsRow {
   last_attempt_at: string | null;
   updated_at: string;
 }
+
+// Phase 8.5 Reward Management, Voucher Wallet & Lucky Spin Types
+export type RewardCampaignType = "standard" | "lucky_spin" | "quiz_reward" | "seasonal";
+export type RewardCampaignStatus = "draft" | "published" | "paused" | "closed" | "archived";
+export type RewardDiscountType = "percentage" | "fixed_amount" | "free_service" | "gift";
+export type RewardVoucherCategory = "all" | "food" | "stay" | "tour" | "gift";
+export type RewardTemplateStatus = "draft" | "active" | "paused" | "archived";
+export type RewardWalletItemStatus = "issued" | "redeemed" | "expired" | "revoked";
+export type RewardWalletSourceType = "lucky_spin" | "quiz_completed" | "admin_grant" | "campaign_claim";
+export type RewardWheelStatus = "draft" | "active" | "paused" | "archived";
+export type RewardSegmentType = "voucher" | "no_win" | "gift_item";
+export type RewardEntitlementGrantType = "free_daily" | "quiz_completed" | "admin_grant" | "campaign_claim";
+
+export interface RewardCampaignRow {
+  id: string;
+  code: string;
+  title: string;
+  description: string | null;
+  campaign_type: RewardCampaignType;
+  status: RewardCampaignStatus;
+  start_at: string;
+  end_at: string | null;
+  total_quota: number;
+  per_user_limit: number;
+  eligibility_rules_json: string;
+  version: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RewardVoucherTemplateRow {
+  id: string;
+  campaign_id: string | null;
+  code_prefix: string;
+  title: string;
+  discount_display: string;
+  discount_type: RewardDiscountType;
+  discount_value: number;
+  min_order_value: number;
+  category: RewardVoucherCategory;
+  category_label: string;
+  description: string;
+  terms_conditions: string;
+  validity_days: number;
+  total_stock: number;
+  issued_count: number;
+  status: RewardTemplateStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RewardWalletItemRow {
+  id: string;
+  user_id: string;
+  template_id: string | null;
+  campaign_id: string | null;
+  voucher_code: string;
+  title: string;
+  discount_display: string;
+  category: string;
+  terms_conditions_snapshot: string;
+  status: RewardWalletItemStatus;
+  source_type: RewardWalletSourceType;
+  source_reference_id: string | null;
+  issued_at: string;
+  expires_at: string;
+  redeemed_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RewardSpinWheelRow {
+  id: string;
+  campaign_id: string;
+  title: string;
+  description: string | null;
+  status: RewardWheelStatus;
+  cost_entitlement_count: number;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RewardSpinSegmentRow {
+  id: string;
+  wheel_id: string;
+  order_index: number;
+  label: string;
+  segment_type: RewardSegmentType;
+  voucher_template_id: string | null;
+  weight: number;
+  total_inventory: number;
+  awarded_count: number;
+  color: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RewardEntitlementRow {
+  id: string;
+  user_id: string;
+  campaign_id: string;
+  wheel_id: string | null;
+  grant_type: RewardEntitlementGrantType;
+  source_event_key: string | null;
+  total_granted: number;
+  consumed_count: number;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RewardSpinAttemptRow {
+  id: string;
+  user_id: string;
+  wheel_id: string;
+  entitlement_id: string | null;
+  segment_id: string;
+  result_type: RewardSegmentType;
+  voucher_id: string | null;
+  result_snapshot_json: string;
+  idempotency_key: string | null;
+  status: "completed" | "failed";
+  created_at: string;
+}
+
+export interface RewardRedemptionRow {
+  id: string;
+  voucher_id: string;
+  actor: string;
+  actor_role: string;
+  status: "success" | "failed";
+  reason: string | null;
+  notes: string | null;
+  idempotency_key: string | null;
+  created_at: string;
+}
+
+export interface RewardAuditEventRow {
+  id: string;
+  actor: string;
+  actor_type: "admin" | "tourist" | "system";
+  action: string;
+  resource_type: string;
+  resource_id: string;
+  payload_json: string | null;
+  created_at: string;
+}

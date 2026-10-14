@@ -261,6 +261,42 @@ const QuizResultPage: React.FC = () => {
 
       {/* 4. Action Buttons */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
+        {attempt.status === "completed" && (attempt.score || 0) >= 10 && (
+          <div
+            style={{
+              backgroundColor: "#fef3c7",
+              border: "1px solid #fde68a",
+              borderRadius: 14,
+              padding: "12px 14px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#b45309" }}>
+                🎁 Bạn đủ điều kiện nhận quà tặng!
+              </div>
+              <div style={{ fontSize: 11, color: "#92400e", marginTop: 2 }}>
+                Đạt điểm cao trong bài thi Quiz được tặng lượt quay may mắn
+              </div>
+            </div>
+            <button
+              type="button"
+              className="eco-btn-primary"
+              style={{ padding: "8px 12px", fontSize: 12, height: "auto", flexShrink: 0 }}
+              onClick={async () => {
+                try {
+                  await api.claimQuizReward(attempt.id);
+                } catch {}
+                navigate("/spin");
+              }}
+            >
+              Thử vận may
+            </button>
+          </div>
+        )}
         <button
           type="button"
           className="eco-btn-primary"

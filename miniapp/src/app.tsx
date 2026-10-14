@@ -14,6 +14,8 @@ import PlaceDetailPage from "./pages/place-detail";
 import AIChatPage from "./pages/chat";
 import PlannerPage from "./pages/planner";
 import VouchersPage from "./pages/vouchers";
+import VoucherWalletPage from "./pages/voucher-wallet";
+import LuckySpinPage from "./pages/lucky-spin";
 import QuizHomePage from "./pages/quiz";
 import QuizPlayPage from "./pages/quiz-play";
 import QuizResultPage from "./pages/quiz-result";
@@ -75,6 +77,8 @@ const RootApp: React.FC = () => {
                 <Route path="/chat" element={<AIChatPage />} />
                 <Route path="/planner" element={<PlannerPage />} />
                                 <Route path="/vouchers" element={<VouchersPage />} />
+                <Route path="/vouchers/wallet" element={<VoucherWalletPage />} />
+                <Route path="/spin" element={<LuckySpinPage />} />
                 <Route path="/quiz" element={<QuizHomePage />} />
                 <Route path="/quiz/play" element={<QuizPlayPage />} />
                 <Route path="/quiz/result/:id" element={<QuizResultPage />} />

@@ -364,3 +364,109 @@ export interface QuizUserStats {
   bestScore: number;
   lastAttemptAt?: string | null;
 }
+
+// Phase 8.5 Reward Management, Voucher Wallet & Lucky Spin Types
+export interface RewardCampaign {
+  id: string;
+  code: string;
+  title: string;
+  description?: string | null;
+  campaign_type: "standard" | "lucky_spin" | "quiz_reward" | "seasonal";
+  status: "draft" | "published" | "paused" | "closed" | "archived";
+  start_at: string;
+  end_at?: string | null;
+  total_quota: number;
+  per_user_limit: number;
+  eligibility_rules_json?: string;
+}
+
+export interface RewardVoucherTemplate {
+  id: string;
+  campaign_id?: string | null;
+  code_prefix: string;
+  title: string;
+  discount_display: string;
+  discount_type: "percentage" | "fixed_amount" | "free_service" | "gift";
+  discount_value: number;
+  min_order_value: number;
+  category: "all" | "food" | "stay" | "tour" | "gift";
+  category_label: string;
+  description: string;
+  terms_conditions: string;
+  validity_days: number;
+  total_stock: number;
+  issued_count: number;
+  status: "draft" | "active" | "paused" | "archived";
+}
+
+export interface RewardWalletItem {
+  id: string;
+  user_id: string;
+  template_id?: string | null;
+  campaign_id?: string | null;
+  campaign_title?: string | null;
+  voucher_code: string;
+  title: string;
+  discount_display: string;
+  category: string;
+  terms_conditions_snapshot: string;
+  status: "issued" | "redeemed" | "expired" | "revoked";
+  source_type: "lucky_spin" | "quiz_completed" | "admin_grant" | "campaign_claim";
+  source_reference_id?: string | null;
+  issued_at: string;
+  expires_at: string;
+  redeemed_at?: string | null;
+  revoked_at?: string | null;
+}
+
+export interface RewardSpinSegment {
+  id: string;
+  wheel_id: string;
+  order_index: number;
+  label: string;
+  segment_type: "voucher" | "no_win" | "gift_item";
+  voucher_template_id?: string | null;
+  weight: number;
+  total_inventory: number;
+  awarded_count: number;
+  color?: string | null;
+  is_available?: boolean;
+}
+
+export interface RewardSpinWheel {
+  id: string;
+  campaign_id: string;
+  title: string;
+  description?: string | null;
+  status: "draft" | "active" | "paused" | "archived";
+  cost_entitlement_count: number;
+}
+
+export interface RewardSpinEligibility {
+  canSpin: boolean;
+  availableTurns: number;
+  campaign: RewardCampaign | null;
+  wheel: RewardSpinWheel | null;
+  dailyFreeEligible: boolean;
+  reason?: string;
+}
+
+export interface RewardSpinResult {
+  success: boolean;
+  spinAttemptId: string;
+  segment: {
+    id: string;
+    orderIndex: number;
+    label: string;
+    segmentType: "voucher" | "no_win" | "gift_item";
+    color?: string | null;
+  };
+  voucher?: {
+    id: string;
+    code: string;
+    title: string;
+    discountDisplay: string;
+    category: string;
+    expiresAt: string;
+  } | null;
+}

@@ -32,6 +32,37 @@ import {
   adminQuizAttemptsListRoute,
   adminQuizExportRoute,
 } from "./routes/admin-quiz";
+import {
+  rewardCampaignsRoute,
+  rewardWalletListRoute,
+  rewardWalletDetailRoute,
+  rewardActiveWheelRoute,
+  rewardSpinEligibilityRoute,
+  rewardClaimDailySpinRoute,
+  rewardClaimQuizRewardRoute,
+  rewardExecuteSpinRoute,
+  rewardSpinHistoryRoute,
+} from "./routes/rewards";
+import {
+  adminRewardCampaignsListRoute,
+  adminRewardCampaignDetailRoute,
+  adminRewardCampaignCreateRoute,
+  adminRewardCampaignUpdateRoute,
+  adminRewardCampaignStatusRoute,
+  adminRewardTemplatesListRoute,
+  adminRewardTemplateCreateRoute,
+  adminRewardTemplateToggleRoute,
+  adminRewardWheelsListRoute,
+  adminRewardWheelDetailRoute,
+  adminRewardWheelCreateRoute,
+  adminRewardWheelSegmentsRoute,
+  adminRewardWheelStatusRoute,
+  adminRewardWalletListRoute,
+  adminRewardVoucherRedeemRoute,
+  adminRewardVoucherRevokeRoute,
+  adminRewardAnalyticsRoute,
+  adminRewardExportRoute,
+} from "./routes/admin-rewards";
 import type { Env } from "./types";
 import { Router } from "./utils/router";
 import { optionsResponse, errorResponse } from "./utils/response";
@@ -204,6 +235,37 @@ router.post("/api/admin/quiz/challenges/:id/close", adminQuizChallengeCloseRoute
 router.get("/api/admin/quiz/analytics", adminQuizAnalyticsRoute);
 router.get("/api/admin/quiz/attempts", adminQuizAttemptsListRoute);
 router.get("/api/admin/quiz/export", adminQuizExportRoute);
+
+// Phase 8.5 Rewards & Lucky Spin Routes (Tourist)
+router.get("/api/rewards/campaigns", rewardCampaignsRoute);
+router.get("/api/rewards/wallet", rewardWalletListRoute);
+router.get("/api/rewards/wallet/:id", rewardWalletDetailRoute);
+router.get("/api/rewards/spins/active", rewardActiveWheelRoute);
+router.get("/api/rewards/spins/eligibility", rewardSpinEligibilityRoute);
+router.post("/api/rewards/spins/claim-daily", rewardClaimDailySpinRoute);
+router.post("/api/rewards/spins/claim-quiz", rewardClaimQuizRewardRoute);
+router.post("/api/rewards/spins", rewardExecuteSpinRoute);
+router.get("/api/rewards/spins/history", rewardSpinHistoryRoute);
+
+// Phase 8.5 Admin Rewards & Lucky Spin Routes
+router.get("/api/admin/rewards/campaigns", adminRewardCampaignsListRoute);
+router.get("/api/admin/rewards/campaigns/:id", adminRewardCampaignDetailRoute);
+router.post("/api/admin/rewards/campaigns", adminRewardCampaignCreateRoute);
+router.put("/api/admin/rewards/campaigns/:id", adminRewardCampaignUpdateRoute);
+router.post("/api/admin/rewards/campaigns/:id/status", adminRewardCampaignStatusRoute);
+router.get("/api/admin/rewards/templates", adminRewardTemplatesListRoute);
+router.post("/api/admin/rewards/templates", adminRewardTemplateCreateRoute);
+router.put("/api/admin/rewards/templates/:id/status", adminRewardTemplateToggleRoute);
+router.get("/api/admin/rewards/wheels", adminRewardWheelsListRoute);
+router.get("/api/admin/rewards/wheels/:id", adminRewardWheelDetailRoute);
+router.post("/api/admin/rewards/wheels", adminRewardWheelCreateRoute);
+router.put("/api/admin/rewards/wheels/:id/segments", adminRewardWheelSegmentsRoute);
+router.put("/api/admin/rewards/wheels/:id/status", adminRewardWheelStatusRoute);
+router.get("/api/admin/rewards/wallet", adminRewardWalletListRoute);
+router.post("/api/admin/rewards/wallet/:id/redeem", adminRewardVoucherRedeemRoute);
+router.post("/api/admin/rewards/wallet/:id/revoke", adminRewardVoucherRevokeRoute);
+router.get("/api/admin/rewards/analytics", adminRewardAnalyticsRoute);
+router.get("/api/admin/rewards/export", adminRewardExportRoute);
 
 
 

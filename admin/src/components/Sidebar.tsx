@@ -109,6 +109,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
             letterSpacing: 0.5,
           }}
         >
+          ƯU ĐÃI & PHẦN THƯỞNG
+        </div>
+
+        <button
+          className={"nav-item " + (currentTab === "reward_campaigns" ? "active" : "")}
+          onClick={() => onSelectTab("reward_campaigns")}
+        >
+          <span>Chiến dịch & Voucher</span>
+        </button>
+
+        <button
+          className={"nav-item " + (currentTab === "reward_spins" ? "active" : "")}
+          onClick={() => onSelectTab("reward_spins")}
+        >
+          <span>Vòng quay may mắn</span>
+        </button>
+
+        <button
+          className={"nav-item " + (currentTab === "reward_redemptions" ? "active" : "")}
+          onClick={() => onSelectTab("reward_redemptions")}
+        >
+          <span>Ví & Quét xác nhận</span>
+        </button>
+
+        <button
+          className={"nav-item " + (currentTab === "reward_analytics" ? "active" : "")}
+          onClick={() => onSelectTab("reward_analytics")}
+        >
+          <span>Thống kê phần thưởng</span>
+        </button>
+
+        <div
+          style={{
+            padding: "16px 16px 4px",
+            fontSize: 11,
+            fontWeight: 700,
+            color: "#94a3b8",
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+          }}
+        >
           HỆ THỐNG & AI
         </div>
 

@@ -4,6 +4,12 @@ import type { Category, Place, Article, ChatRequest, ChatResponse, AuthUser, Pla
   QuizDailyChallenge,
   QuizAttemptDetail,
   QuizUserStats,
+  RewardCampaign,
+  RewardWalletItem,
+  RewardSpinEligibility,
+  RewardSpinResult,
+  RewardSpinSegment,
+  RewardSpinWheel,
 } from "../types";
 import { STORAGE_KEY_AUTH_TOKEN } from "../constants";
 import { safeStorage } from "./storage";
@@ -374,6 +380,84 @@ export const api = {
   async getQuizUserStats(): Promise<{ stats: QuizUserStats }> {
     const res = await safeFetch("/api/quiz/stats");
     return handleResponse<{ stats: QuizUserStats }>(res);
+  },
+
+  // ==================== PHASE 8.5 REWARD & LUCKY SPIN API ====================
+  async getRewardCampaigns(): Promise<{ campaigns: RewardCampaign[] }> {
+    const res = await safeFetch("/api/rewards/campaigns");
+    return handleResponse<{ campaigns: RewardCampaign[] }>(res);
+  },
+
+  async getRewardWallet(status?: string, page = 1, limit = 20): Promise<{ items: RewardWalletItem[]; total: number; page: number; limit: number }> {
+    const q = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (status) q.set("status", status);
+    const res = await safeFetch("/api/rewards/wallet?" + q.toString());
+    return handleResponse<{ items: RewardWalletItem[]; total: number; page: number; limit: number }>(res);
+  },
+
+  async getRewardWalletDetail(id: string): Promise<{ item: RewardWalletItem }> {
+    const res = await safeFetch("/api/rewards/wallet/" + encodeURIComponent(id));
+    return handleResponse<{ item: RewardWalletItem }>(res);
+  },
+
+  async getActiveWheel(campaignId?: string): Promise<{
+    wheel: RewardSpinWheel | null;
+    campaign: RewardCampaign | null;
+    segments: RewardSpinSegment[];
+  }> {
+    const q = campaignId ? "?campaignId=" + encodeURIComponent(campaignId) : "";
+    const res = await safeFetch("/api/rewards/spins/active" + q);
+    return handleResponse<{
+      wheel: RewardSpinWheel | null;
+      campaign: RewardCampaign | null;
+      segments: RewardSpinSegment[];
+    }>(res);
+  },
+
+  async getSpinEligibility(campaignId?: string): Promise<RewardSpinEligibility> {
+    const q = campaignId ? "?campaignId=" + encodeURIComponent(campaignId) : "";
+    const res = await safeFetch("/api/rewards/spins/eligibility" + q);
+    return handleResponse<RewardSpinEligibility>(res);
+  },
+
+  async claimDailySpin(campaignId?: string): Promise<{ success: boolean; entitlementId: string; availableTurns: number }> {
+    const res = await safeFetch("/api/rewards/spins/claim-daily", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ campaignId }),
+    });
+    return handleResponse<{ success: boolean; entitlementId: string; availableTurns: number }>(res);
+  },
+
+  async claimQuizReward(quizAttemptId: string, campaignId?: string): Promise<{ success: boolean; entitlementId: string; message: string }> {
+    const res = await safeFetch("/api/rewards/spins/claim-quiz", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quizAttemptId, campaignId }),
+    });
+    return handleResponse<{ success: boolean; entitlementId: string; message: string }>(res);
+  },
+
+  async executeSpin(payload: {
+    wheelId?: string;
+    campaignId?: string;
+    idempotencyKey?: string;
+  }): Promise<RewardSpinResult> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (payload.idempotencyKey) {
+      headers["Idempotency-Key"] = payload.idempotencyKey;
+    }
+    const res = await safeFetch("/api/rewards/spins", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<RewardSpinResult>(res);
+  },
+
+  async getSpinHistory(page = 1, limit = 20): Promise<{ history: any[]; total: number; page: number; limit: number }> {
+    const res = await safeFetch("/api/rewards/spins/history?page=" + page + "&limit=" + limit);
+    return handleResponse<{ history: any[]; total: number; page: number; limit: number }>(res);
   },
 };
 

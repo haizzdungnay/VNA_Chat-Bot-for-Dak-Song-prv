@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-// import { useNavigate } from "zmp-ui";
+import { useNavigate } from "zmp-ui";
 import { useApp } from "../context/AppContext";
 import { api } from "../services/api";
 import type { TourProduct } from "../types";
@@ -82,7 +82,7 @@ const DAK_SONG_VOUCHERS: VoucherItem[] = [
 ];
 
 export const VouchersPage: React.FC = () => {
-  // const navigate = useNavigate();
+  const navigate = useNavigate();
   const { showToast } = useApp();
   const [activeTab, setActiveTab] = useState<"vouchers" | "tours">("tours");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
@@ -134,6 +134,30 @@ export const VouchersPage: React.FC = () => {
           </p>
         </div>
 
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button
+            type="button"
+            onClick={() => navigate("/vouchers/wallet")}
+            style={{
+              backgroundColor: "var(--color-primary-light, #e0f2fe)",
+              border: "1px solid var(--color-primary)",
+              borderRadius: 8,
+              color: "var(--color-primary)",
+              fontSize: 12,
+              fontWeight: 700,
+              padding: "6px 10px",
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              cursor: "pointer",
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+              account_balance_wallet
+            </span>
+            Ví của tôi
+          </button>
+
         <button
           type="button"
           onClick={() => {
@@ -159,6 +183,7 @@ export const VouchersPage: React.FC = () => {
           </span>
           Đơn của tôi
         </button>
+        </div>
       </div>
 
       {/* Main Tab Switcher */}
@@ -356,6 +381,7 @@ export const VouchersPage: React.FC = () => {
 
           {/* Lucky Wheel Banner Preview */}
           <div
+            onClick={() => navigate("/spin")}
             style={{
               backgroundColor: "var(--color-ochre-bg)",
               border: "1px solid var(--color-ochre-border)",
@@ -365,6 +391,7 @@ export const VouchersPage: React.FC = () => {
               display: "flex",
               alignItems: "center",
               gap: 12,
+              cursor: "pointer",
             }}
           >
             <div
@@ -389,9 +416,12 @@ export const VouchersPage: React.FC = () => {
                 Vòng quay may mắn Đắk Song
               </div>
               <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginTop: 2 }}>
-                Quay số trúng quà tặng du lịch & voucher hấp dẫn (sắp kích hoạt)
+                Nhấn để tham gia quay thưởng voucher & quà tặng du lịch ngay
               </div>
             </div>
+            <span className="material-symbols-outlined" style={{ color: "var(--color-ochre)" }}>
+              chevron_right
+            </span>
           </div>
 
           {/* Category Filter Chips */}

@@ -79,7 +79,23 @@ export interface SystemOverview {
   } | null;
 }
 
-export type AdminTab = "overview" | "revenue" | "tours" | "services" | "bookings" | "quiz_questions" | "quiz_challenges" | "quiz_analytics" | "visitors" | "profiles" | "logs" | "settings";
+export type AdminTab =
+  | "overview"
+  | "revenue"
+  | "tours"
+  | "services"
+  | "bookings"
+  | "quiz_questions"
+  | "quiz_challenges"
+  | "quiz_analytics"
+  | "reward_campaigns"
+  | "reward_spins"
+  | "reward_redemptions"
+  | "reward_analytics"
+  | "visitors"
+  | "profiles"
+  | "logs"
+  | "settings";
 
 
 
@@ -164,6 +180,112 @@ export interface AdminBookingItem {
   notes?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// Phase 8.5 Admin Reward & Voucher Management Types
+export interface AdminRewardCampaign {
+  id: string;
+  code: string;
+  title: string;
+  description?: string | null;
+  campaign_type: "standard" | "lucky_spin" | "quiz_reward" | "seasonal";
+  status: "draft" | "published" | "paused" | "closed" | "archived";
+  start_at: string;
+  end_at?: string | null;
+  total_quota: number;
+  per_user_limit: number;
+  eligibility_rules_json: string;
+  version: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminRewardVoucherTemplate {
+  id: string;
+  campaign_id?: string | null;
+  code_prefix: string;
+  title: string;
+  discount_display: string;
+  discount_type: "percentage" | "fixed_amount" | "free_service" | "gift";
+  discount_value: number;
+  min_order_value: number;
+  category: "all" | "food" | "stay" | "tour" | "gift";
+  category_label: string;
+  description: string;
+  terms_conditions: string;
+  validity_days: number;
+  total_stock: number;
+  issued_count: number;
+  status: "draft" | "active" | "paused" | "archived";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminRewardSpinWheel {
+  id: string;
+  campaign_id: string;
+  title: string;
+  description?: string | null;
+  status: "draft" | "active" | "paused" | "archived";
+  cost_entitlement_count: number;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminRewardSpinSegment {
+  id: string;
+  wheel_id: string;
+  order_index: number;
+  label: string;
+  segment_type: "voucher" | "no_win" | "gift_item";
+  voucher_template_id?: string | null;
+  weight: number;
+  total_inventory: number;
+  awarded_count: number;
+  color?: string | null;
+}
+
+export interface AdminRewardWalletItem {
+  id: string;
+  user_id: string;
+  voucher_code: string;
+  title: string;
+  discount_display: string;
+  category: string;
+  terms_conditions_snapshot: string;
+  status: "issued" | "redeemed" | "expired" | "revoked";
+  source_type: string;
+  issued_at: string;
+  expires_at: string;
+  redeemed_at?: string | null;
+  revoked_at?: string | null;
+  user_email?: string | null;
+  user_name?: string | null;
+  campaign_title?: string | null;
+}
+
+export interface AdminRewardAnalytics {
+  campaigns: {
+    total: number;
+    published: number;
+  };
+  vouchers: {
+    totalIssued: number;
+    totalRedeemed: number;
+    totalRevoked: number;
+    totalExpired: number;
+    uniqueHolders: number;
+    redemptionRate: number;
+  };
+  spins: {
+    totalSpins: number;
+    totalWins: number;
+    totalNoWins: number;
+    uniqueSpinners: number;
+    winRate: number;
+  };
 }
 
 export interface AdminBookingDetail {

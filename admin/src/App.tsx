@@ -24,6 +24,10 @@ import { BookingsPage } from "./pages/BookingsPage";
 import { QuizQuestionsPage } from "./pages/QuizQuestionsPage";
 import { QuizChallengesPage } from "./pages/QuizChallengesPage";
 import { QuizAnalyticsPage } from "./pages/QuizAnalyticsPage";
+import { RewardCampaignsPage } from "./pages/RewardCampaignsPage";
+import { RewardSpinsPage } from "./pages/RewardSpinsPage";
+import { RewardRedemptionsPage } from "./pages/RewardRedemptionsPage";
+import { RewardAnalyticsPage } from "./pages/RewardAnalyticsPage";
 
 
 export const App: React.FC = () => {
@@ -196,6 +200,11 @@ export const App: React.FC = () => {
           {currentTab === "quiz_challenges" && <QuizChallengesPage onNotify={addToast} />}
           {currentTab === "quiz_analytics" && <QuizAnalyticsPage onNotify={addToast} />}
 
+          {/* Phase 8.5 Rewards & Lucky Spin Modules */}
+          {currentTab === "reward_campaigns" && <RewardCampaignsPage onNotify={addToast} />}
+          {currentTab === "reward_spins" && <RewardSpinsPage onNotify={addToast} />}
+          {currentTab === "reward_redemptions" && <RewardRedemptionsPage onNotify={addToast} />}
+          {currentTab === "reward_analytics" && <RewardAnalyticsPage onNotify={addToast} />}
 
           {/* System & AI Modules */}
           {currentTab === "overview" && (

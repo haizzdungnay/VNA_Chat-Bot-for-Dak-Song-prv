@@ -21,6 +21,7 @@ const m9Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0009_booki
 const m10Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0010_historical_refund_reconciliation.sql'), 'utf8');
 const m11Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0011_tourism_quiz.sql'), 'utf8');
 const m12Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0012_quiz_scoring_and_schedule.sql'), 'utf8');
+const m13Sql = fs.readFileSync(path.join(REPO_ROOT, 'worker/migrations/0013_rewards_wallet_spin.sql'), 'utf8');
 
 test('Fresh migration path: 0001 -> 0002 -> 0003 applies cleanly and verifies 100% integrity', () => {
   const db = new DatabaseSync(':memory:');
@@ -271,6 +272,39 @@ test('Fresh migration 0012_quiz_scoring_and_schedule: adds score_per_question co
   assert.equal(fkViolations.length, 0, 'Zero foreign key violations after 0012');
 });
 
+test('Fresh migration 0013_rewards_wallet_spin: creates reward tables and demo seeds additively', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(m1Sql);
+  db.exec(m2Sql);
+  db.exec(m3Sql);
+  db.exec(m4Sql);
+  db.exec(m5Sql);
+  db.exec(m6Sql);
+  db.exec(m7Sql);
+  db.exec(m8Sql);
+  db.exec(m9Sql);
+  db.exec(m10Sql);
+  db.exec(m11Sql);
+  db.exec(m12Sql);
+
+  assert.doesNotThrow(() => db.exec(m13Sql), '0013_rewards_wallet_spin.sql should execute cleanly');
+
+  const campaignCount = db.prepare('SELECT count(*) as count FROM reward_campaigns').get().count;
+  assert.equal(campaignCount, 1, 'reward_campaigns seeded with 1 demo campaign');
+
+  const tplCount = db.prepare('SELECT count(*) as count FROM reward_voucher_templates').get().count;
+  assert.equal(tplCount, 3, 'reward_voucher_templates seeded with 3 demo templates');
+
+  const wheelCount = db.prepare('SELECT count(*) as count FROM reward_spin_wheels').get().count;
+  assert.equal(wheelCount, 1, 'reward_spin_wheels seeded with 1 demo wheel');
+
+  const segCount = db.prepare('SELECT count(*) as count FROM reward_spin_segments').get().count;
+  assert.equal(segCount, 6, 'reward_spin_segments seeded with 6 segments');
+
+  const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+  assert.equal(fkViolations.length, 0, 'Zero foreign key violations after 0013');
+});
+
 test('Preexisting database upgrade path: upgrades safely without data loss to 0006', () => {
   const db = new DatabaseSync(':memory:');
   db.exec(m1Sql);
@@ -288,6 +322,7 @@ test('Preexisting database upgrade path: upgrades safely without data loss to 00
   assert.doesNotThrow(() => db.exec(m10Sql), '0010 must upgrade preexisting DB cleanly');
   assert.doesNotThrow(() => db.exec(m11Sql), '0011 must upgrade preexisting DB cleanly');
   assert.doesNotThrow(() => db.exec(m12Sql), '0012 must upgrade preexisting DB cleanly');
+  assert.doesNotThrow(() => db.exec(m13Sql), '0013 must upgrade preexisting DB cleanly');
 
   const customPlace = db.prepare("SELECT * FROM places WHERE id = 'custom-preexist'").get();
   assert.ok(customPlace, 'Custom pre-existing record must be preserved');
