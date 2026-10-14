@@ -29,6 +29,24 @@ function rowToPublic(row: AdminAIProfileRow): AdminAIProfilePublic {
   };
 }
 
+export const EXPECTED_MIGRATIONS = [
+  "0001_initial.sql",
+  "0002_seed.sql",
+  "0003_schema_update.sql",
+  "0004_admin_extension.sql",
+  "0005_identity.sql",
+  "0006_travel_planner.sql",
+  "0007_optimistic_lock_guard.sql",
+  "0008_business_booking.sql",
+  "0009_booking_transaction_hardening.sql",
+  "0010_historical_refund_reconciliation.sql",
+  "0011_tourism_quiz.sql",
+  "0012_quiz_scoring_and_schedule.sql",
+  "0013_rewards_wallet_spin.sql",
+  "0014_rewards_integrity_hardening.sql",
+  "0015_rewards_time_quota_hardening.sql",
+];
+
 export class AdminService {
   private env: Env;
 
@@ -540,6 +558,9 @@ async getOperationsReadiness(): Promise<Record<string, unknown>> {
       ghostSpins,
       userSpinSumRow,
       quizStatsSumRow,
+      quizUserDiscrepancyRow,
+      rewardDiscrepancyRow,
+      hasMigTable,
     ] = await Promise.all([
       this.env.DB.prepare("SELECT 1 as alive").first<{ alive: number }>(),
       this.env.DB.prepare("SELECT count(*) as c FROM users").first<{ c: number }>(),
@@ -563,6 +584,36 @@ async getOperationsReadiness(): Promise<Record<string, unknown>> {
       this.env.DB.prepare("SELECT count(*) as c FROM reward_spin_attempts WHERE result_type = 'voucher' AND voucher_id IS NULL AND status = 'completed'").first<{ c: number }>(),
       this.env.DB.prepare("SELECT COALESCE(SUM(completed_spins), 0) as s FROM reward_user_campaign_spins").first<{ s: number }>(),
       this.env.DB.prepare("SELECT COALESCE(SUM(completed_attempts), 0) as s FROM quiz_user_stats").first<{ s: number }>(),
+      this.env.DB.prepare(`
+        SELECT count(*) as c FROM (
+          SELECT user_id FROM quiz_user_stats
+          WHERE completed_attempts != (SELECT count(*) FROM quiz_attempts WHERE user_id = quiz_user_stats.user_id AND status = 'completed')
+          UNION
+          SELECT user_id FROM quiz_attempts
+          WHERE status = 'completed' AND user_id NOT IN (SELECT user_id FROM quiz_user_stats)
+        )
+      `).first<{ c: number }>(),
+      this.env.DB.prepare(`
+        SELECT count(*) as c FROM (
+          SELECT s.campaign_id, s.user_id
+          FROM reward_user_campaign_spins s
+          WHERE s.completed_spins != (
+            SELECT count(*)
+            FROM reward_spin_attempts a
+            JOIN reward_spin_wheels w ON a.wheel_id = w.id
+            WHERE w.campaign_id = s.campaign_id AND a.user_id = s.user_id AND a.status = 'completed'
+          )
+          UNION
+          SELECT w.campaign_id, a.user_id
+          FROM reward_spin_attempts a
+          JOIN reward_spin_wheels w ON a.wheel_id = w.id
+          WHERE a.status = 'completed' AND NOT EXISTS (
+            SELECT 1 FROM reward_user_campaign_spins s
+            WHERE s.campaign_id = w.campaign_id AND s.user_id = a.user_id
+          )
+        )
+      `).first<{ c: number }>(),
+      this.env.DB.prepare("SELECT count(*) as c FROM sqlite_master WHERE type = 'table' AND name = 'd1_migrations'").first<{ c: number }>(),
     ]);
 
     const isMockPayment = Boolean(this.env.MOCK_PAYMENT_ENABLED === "true" || this.env.MOCK_PAYMENT_ENABLED === true);
@@ -573,13 +624,72 @@ async getOperationsReadiness(): Promise<Record<string, unknown>> {
     const userSpinsSum = userSpinSumRow?.s || 0;
     const quizStatsSum = quizStatsSumRow?.s || 0;
 
+    // P2-OPS-02: Verify migrations dynamically against d1_migrations metadata table
+    let migrationVerificationStatus: "VERIFIED" | "INCOMPLETE" | "UNKNOWN" = "UNKNOWN";
+    let verifiedAppliedMigrationsCount: number | null = null;
+    let migrationDiscrepancyReason: string | null = null;
+
+    if ((hasMigTable?.c || 0) > 0) {
+      const migRows = await this.env.DB.prepare(
+        "SELECT name FROM d1_migrations ORDER BY id ASC"
+      ).all<{ name: string }>();
+      const appliedNames = (migRows.results || []).map((r) => r.name);
+      verifiedAppliedMigrationsCount = appliedNames.length;
+
+      const matchesLength = appliedNames.length === EXPECTED_MIGRATIONS.length;
+      const matchesNames = matchesLength && appliedNames.every((name, i) => name === EXPECTED_MIGRATIONS[i]);
+
+      if (matchesNames) {
+        migrationVerificationStatus = "VERIFIED";
+        migrationDiscrepancyReason = null;
+      } else {
+        migrationVerificationStatus = "INCOMPLETE";
+        const missing = EXPECTED_MIGRATIONS.filter((m) => !appliedNames.includes(m));
+        const extra = appliedNames.filter((m) => !EXPECTED_MIGRATIONS.includes(m));
+        migrationDiscrepancyReason = `Sai lệch migration metadata: Thiếu [${missing.join(", ")}], Thừa [${extra.join(", ")}]`;
+      }
+    } else {
+      migrationVerificationStatus = "UNKNOWN";
+      verifiedAppliedMigrationsCount = null;
+      migrationDiscrepancyReason = "Bảng metadata d1_migrations không tồn tại (Môi trường test in-memory hoặc chưa qua Wrangler migrator)";
+    }
+
+    // P1-OPS-01: Rigorous invariant calculation including user-level discrepancy checks
+    const quizMatchesGlobal = completedAttemptsCount === quizStatsSum;
+    const quizUserDiscrepancies = quizUserDiscrepancyRow?.c || 0;
+    const quizIntegrityPassed = quizMatchesGlobal && quizUserDiscrepancies === 0;
+
+    const rewardMatchesGlobal = completedSpinsCount === userSpinsSum;
+    const rewardUserDiscrepancies = rewardDiscrepancyRow?.c || 0;
+    const rewardIntegrityPassed = rewardMatchesGlobal && rewardUserDiscrepancies === 0;
+
+    const zeroOversoldTemplates = (oversoldTpl?.c || 0) === 0;
+    const zeroOversoldSegments = (oversoldSeg?.c || 0) === 0;
+    const zeroGhostVoucherSpins = (ghostSpins?.c || 0) === 0;
+
+    const overallIntegrity =
+      Boolean(dbAlive) &&
+      quizIntegrityPassed &&
+      rewardIntegrityPassed &&
+      zeroOversoldTemplates &&
+      zeroOversoldSegments &&
+      zeroGhostVoucherSpins;
+
+    const overallStatus: "PASS" | "FAIL" = overallIntegrity ? "PASS" : "FAIL";
+    const overallStatusLabel = overallIntegrity
+      ? "Kiểm tra toàn vẹn LOCAL: PASS (100% đạt chuẩn kỹ thuật)"
+      : "Kiểm tra toàn vẹn LOCAL: FAIL (Phát hiện sai lệch bất biến dữ liệu)";
+
     return {
       system: {
         timestampUtc: new Date().toISOString(),
         timestampVietnam: vnTime,
         environment: this.env.ENVIRONMENT || "development",
         databaseConnected: dbAlive,
-        appliedMigrationsCount: 15,
+        expectedMigrationsCount: EXPECTED_MIGRATIONS.length,
+        verifiedAppliedMigrationsCount,
+        migrationVerificationStatus,
+        migrationDiscrepancyReason,
       },
       modules: {
         identity: {
@@ -628,17 +738,19 @@ async getOperationsReadiness(): Promise<Record<string, unknown>> {
         },
       },
       invariants: {
-        quizCompletedMatchesStats: completedAttemptsCount === quizStatsSum,
-        rewardSpinsMatchesUserCounters: completedSpinsCount === userSpinsSum,
-        zeroOversoldTemplates: (oversoldTpl?.c || 0) === 0,
-        zeroOversoldSegments: (oversoldSeg?.c || 0) === 0,
-        zeroGhostVoucherSpins: (ghostSpins?.c || 0) === 0,
-        overallIntegrity:
-          (oversoldTpl?.c || 0) === 0 &&
-          (oversoldSeg?.c || 0) === 0 &&
-          (ghostSpins?.c || 0) === 0 &&
-          completedSpinsCount === userSpinsSum &&
-          dbAlive,
+        quizCompletedMatchesStats: quizMatchesGlobal,
+        quizUserDiscrepancyCount: quizUserDiscrepancies,
+        quizIntegrityPassed,
+        rewardSpinsMatchesUserCounters: rewardMatchesGlobal,
+        rewardUserDiscrepancyCount: rewardUserDiscrepancies,
+        rewardIntegrityPassed,
+        zeroOversoldTemplates,
+        zeroOversoldSegments,
+        zeroGhostVoucherSpins,
+        databaseConnected: dbAlive,
+        overallIntegrity,
+        overallStatus,
+        overallStatusLabel,
       },
     };
   }
@@ -661,7 +773,13 @@ async getOperationsReadiness(): Promise<Record<string, unknown>> {
     lines.push(`Thời điểm kết xuất (Việt Nam):,${sanitizeCsv(data.system.timestampVietnam)}`);
     lines.push(`Môi trường:,${sanitizeCsv(data.system.environment)}`);
     lines.push(`Trạng thái CSDL (D1):,${sanitizeCsv(data.system.databaseConnected ? "KẾT NỐI TỐT" : "LỖI")}`);
-    lines.push(`Số migration đã áp dụng:,${sanitizeCsv(data.system.appliedMigrationsCount)}`);
+    lines.push(`Xác minh migration D1:,${sanitizeCsv(
+      data.system.migrationVerificationStatus === "VERIFIED"
+        ? `ĐÃ XÁC MINH (${data.system.verifiedAppliedMigrationsCount}/${data.system.expectedMigrationsCount})`
+        : data.system.migrationVerificationStatus === "INCOMPLETE"
+        ? `THIẾU MIGRATION (${data.system.verifiedAppliedMigrationsCount || 0}/${data.system.expectedMigrationsCount}) - ${data.system.migrationDiscrepancyReason || ""}`
+        : "CHƯA THỂ XÁC MINH METADATA (Môi trường test in-memory hoặc thiếu d1_migrations)"
+    )}`);
     lines.push("");
     lines.push(["Phân hệ", "Trạng thái", "Chế độ nghiệp vụ", "Chỉ số hoạt động", "Ghi chú bảo mật & bản quyền"].map(sanitizeCsv).join(","));
 
@@ -677,12 +795,14 @@ async getOperationsReadiness(): Promise<Record<string, unknown>> {
 
     lines.push("");
     lines.push("ĐỐI SOÁT TÍNH TOÀN VẸN VÀ BẤT BIẾN DỮ LIỆU (INVARIANTS):");
-    lines.push(`Đối soát số lượt Quiz hoàn thành khớp User Stats:,${sanitizeCsv(data.invariants.quizCompletedMatchesStats ? "ĐẠT (PASS)" : "LỆCH")}`);
-    lines.push(`Đối soát lượt quay khớp bộ đếm người dùng:,${sanitizeCsv(data.invariants.rewardSpinsMatchesUserCounters ? "ĐẠT (PASS)" : "LỆCH")}`);
+    lines.push(`Đối soát số lượt Quiz hoàn thành tổng toàn cục:,${sanitizeCsv(data.invariants.quizCompletedMatchesStats ? "ĐẠT (PASS)" : "LỆCH")}`);
+    lines.push(`Đối soát sai lệch Quiz từng người dùng (User-level):,${sanitizeCsv(data.invariants.quizUserDiscrepancyCount === 0 ? "ĐẠT (0 sai lệch)" : `LỖI (${data.invariants.quizUserDiscrepancyCount} sai lệch)`)}`);
+    lines.push(`Đối soát lượt quay khớp bộ đếm người dùng tổng toàn cục:,${sanitizeCsv(data.invariants.rewardSpinsMatchesUserCounters ? "ĐẠT (PASS)" : "LỆCH")}`);
+    lines.push(`Đối soát sai lệch lượt quay từng cặp Campaign/User:,${sanitizeCsv(data.invariants.rewardUserDiscrepancyCount === 0 ? "ĐẠT (0 sai lệch)" : `LỖI (${data.invariants.rewardUserDiscrepancyCount} sai lệch)`)}`);
     lines.push(`Không có mẫu voucher nào bị âm kho:,${sanitizeCsv(data.invariants.zeroOversoldTemplates ? "ĐẠT (PASS)" : "LỖI")}`);
     lines.push(`Không có ô thưởng nào bị vượt hạn mức:,${sanitizeCsv(data.invariants.zeroOversoldSegments ? "ĐẠT (PASS)" : "LỖI")}`);
     lines.push(`Không có lượt quay trúng voucher ảo (Ghost win):,${sanitizeCsv(data.invariants.zeroGhostVoucherSpins ? "ĐẠT (PASS)" : "LỖI")}`);
-    lines.push(`KẾT LUẬN TÍNH TOÀN VẸN:,${sanitizeCsv(data.invariants.overallIntegrity ? "100% ĐẠT CHUẨN KỸ THUẬT" : "CẦN RÀ SOÁT")}`);
+    lines.push(`KẾT LUẬN TOÀN VẸN LOCAL:,${sanitizeCsv(data.invariants.overallIntegrity ? "PASS (100% ĐẠT CHUẨN KỸ THUẬT)" : "FAIL (CÓ SAI LỆCH CẦN RÀ SOÁT)")}`);
 
     return "\uFEFF" + lines.join("\r\n");
   }

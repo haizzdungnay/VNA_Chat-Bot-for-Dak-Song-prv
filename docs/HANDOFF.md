@@ -1,12 +1,12 @@
 # PROJECT HANDOFF — VNA DAK SONG SMART TOURISM
-**Cap nhat lan cuoi:** 14/10/2026 (Hoan tat Phase 8.4.4 Closure)
+**Cap nhat lan cuoi:** 14/10/2026 (Hoan tat Phase 8.6.1 Operations & Invariants Closure)
 
 ---
 
 ## 1. THONG TIN GIT & REPOSITORY BASELINE
 - **Repository:** `haizzdungnay/VNA_Chat-Bot-for-Dak-Song-prv`
 - **Nhanh lam viec chinh thuc:** `feature/phase8-tourism-quiz`
-- **HEAD Commit hien tai:** `3b6dc04a78fdc9ec0fd40dfb0c57973a2c85dfb6` (Clean working tree, da push len `origin`).
+ - **HEAD Commit hien tai:** Phase 8.6.1 Acceptance Commit.
 - **Base commit nhanh:** `df26cc587d7814bbbf81bcd440a498112e42d700` (Phase 8.3.2).
 - **Nhanh chinh (`main`):** `c2d767300fd6bfdc571475883068f68a293bfa61` (`v1.0.0-mvp`).
 - **Quy tac Git bat bien:** TUYET DOI KHONG tu y merge vao `main` khi chua co lenh ro rang cua user. Tiep tuc lam viec tren feature branch.

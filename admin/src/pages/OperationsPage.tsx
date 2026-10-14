@@ -55,8 +55,20 @@ export const OperationsPage: React.FC<Props> = ({ onNotify }) => {
               Môi trường: <strong>{system.environment}</strong> • CSDL D1:{" "}
               <strong style={{ color: system.databaseConnected ? "#16a34a" : "#dc2626" }}>
                 {system.databaseConnected ? "KẾT NỐI BÌNH THƯỜNG" : "MẤT KẾT NỐI"}
-              </strong>{" "}
-              • Số migration áp dụng: <strong>{system.appliedMigrationsCount} (0001 - 0015)</strong>
+              </strong> • Migration:{" "}
+              {system.migrationVerificationStatus === "VERIFIED" ? (
+                <span className="badge badge-success" style={{ fontSize: 11 }}>
+                  {system.verifiedAppliedMigrationsCount}/{system.expectedMigrationsCount} ĐÃ XÁC MINH
+                </span>
+              ) : system.migrationVerificationStatus === "INCOMPLETE" ? (
+                <span className="badge badge-danger" style={{ fontSize: 11 }} title={system.migrationDiscrepancyReason || ""}>
+                  THIẾU MIGRATION ({system.verifiedAppliedMigrationsCount || 0}/{system.expectedMigrationsCount})
+                </span>
+              ) : (
+                <span className="badge badge-warning" style={{ fontSize: 11 }} title={system.migrationDiscrepancyReason || ""}>
+                  CHƯA XÁC MINH METADATA
+                </span>
+              )}
             </p>
             <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
               Giờ VN: {system.timestampVietnam} | UTC: {system.timestampUtc}
@@ -97,26 +109,26 @@ export const OperationsPage: React.FC<Props> = ({ onNotify }) => {
             className={invariants.overallIntegrity ? "badge badge-success" : "badge badge-danger"}
             style={{ fontSize: 12, fontWeight: 700 }}
           >
-            {invariants.overallIntegrity ? "100% ĐẠT CHUẨN KỸ THUẬT" : "CÓ SAI LỆCH CẦN RÀ SOÁT"}
+            {invariants.overallIntegrity ? "KIỂM TRA TOÀN VẸN LOCAL: PASS" : "KIỂM TRA TOÀN VẸN LOCAL: FAIL"}
           </span>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
-          <div style={{ padding: 12, borderRadius: 10, background: invariants.quizCompletedMatchesStats ? "#f0fdf4" : "#fef2f2", border: "1px solid " + (invariants.quizCompletedMatchesStats ? "#bbf7d0" : "#fecaca") }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: invariants.quizCompletedMatchesStats ? "#16a34a" : "#dc2626" }}>
-              {invariants.quizCompletedMatchesStats ? "✓ KHỚP LƯỢT THI QUIZ" : "✗ LỆCH THỐNG KÊ QUIZ"}
+          <div style={{ padding: 12, borderRadius: 10, background: invariants.quizIntegrityPassed ? "#f0fdf4" : "#fef2f2", border: "1px solid " + (invariants.quizIntegrityPassed ? "#bbf7d0" : "#fecaca") }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: invariants.quizIntegrityPassed ? "#16a34a" : "#dc2626" }}>
+              {invariants.quizIntegrityPassed ? "✓ TOÀN VẸN QUIZ (0 SAI LỆCH)" : "✗ LỆCH QUIZ (" + invariants.quizUserDiscrepancyCount + " SAI LỆCH)"}
             </div>
             <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
-              Số bài thi hoàn thành khớp chính xác với bảng tổng hợp người dùng (quiz_user_stats).
+              Đối soát tổng toàn cục và từng tài khoản độc lập giữa quiz_attempts và quiz_user_stats.
             </div>
           </div>
 
-          <div style={{ padding: 12, borderRadius: 10, background: invariants.rewardSpinsMatchesUserCounters ? "#f0fdf4" : "#fef2f2", border: "1px solid " + (invariants.rewardSpinsMatchesUserCounters ? "#bbf7d0" : "#fecaca") }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: invariants.rewardSpinsMatchesUserCounters ? "#16a34a" : "#dc2626" }}>
-              {invariants.rewardSpinsMatchesUserCounters ? "✓ KHỚP QUOTA VÒNG QUAY" : "✗ LỆCH QUOTA QUAY"}
+          <div style={{ padding: 12, borderRadius: 10, background: invariants.rewardIntegrityPassed ? "#f0fdf4" : "#fef2f2", border: "1px solid " + (invariants.rewardIntegrityPassed ? "#bbf7d0" : "#fecaca") }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: invariants.rewardIntegrityPassed ? "#16a34a" : "#dc2626" }}>
+              {invariants.rewardIntegrityPassed ? "✓ TOÀN VẸN QUOTA QUAY (0 SAI LỆCH)" : "✗ LỆCH QUOTA QUAY (" + invariants.rewardUserDiscrepancyCount + " SAI LỆCH)"}
             </div>
             <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>
-              Lượt quay hoàn thành trong sổ cái khớp 100% với bộ đếm người dùng (reward_user_campaign_spins).
+              Đối soát tổng toàn cục và từng cặp (campaign, user) giữa sổ cái quay và bộ đếm.
             </div>
           </div>
 

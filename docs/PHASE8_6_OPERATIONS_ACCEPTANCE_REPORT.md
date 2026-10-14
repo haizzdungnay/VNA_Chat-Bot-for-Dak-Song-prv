@@ -87,3 +87,17 @@ Theo đúng chỉ đạo tại Gate B, Phase 8.6 tập trung hoàn thiện năng
 3. **Thương mại hóa Voucher đối tác:** Toàn bộ coupon và phần thưởng hiện tại là DEMO mô phỏng nghiệp vụ, cần quy trình ký kết đối tác kinh doanh trước khi đưa vào khai thác thực tế.
 4. **Đăng ký Zalo Mini App Production:** Chưa nộp phê duyệt chính thức lên Zalo Platform.
 
+---
+
+## VI. PHỤ LỤC HIỆU CHỈNH & KHẮC PHỤC (PHASE 8.6.1 ADDENDUM)
+Sau phiên review độc lập, các điểm ghi nhận chưa chuẩn xác đã được khắc phục hoàn toàn tại Phase 8.6.1:
+1. **Phân loại kiểm thử chính xác:**
+   - `cross-module-acceptance.test.mjs` được định danh lại chính xác là **In-Process Worker Integration + In-Memory SQLite**.
+   - Bổ sung bộ kiểm thử **Live HTTP Socket E2E** thực tế `cross-module-tier-c-http.test.mjs` chạy qua `fetch('http://127.0.0.1:8788/...')` của workerd.
+2. **Khắc phục Invariant Quiz:**
+   - `invariants.overallIntegrity` nay bao gồm `quizIntegrityPassed` (cả tổng toàn cục lẫn đối soát 0 sai lệch cấp từng user).
+3. **Xác minh Migration động:**
+   - `system.appliedMigrationsCount` không còn gán cứng 15, mà đọc từ bảng metadata `d1_migrations` của D1 SQLite và đối chiếu với 15 file `EXPECTED_MIGRATIONS`. Môi trường in-memory không có bảng trả về `UNKNOWN`.
+4. **Tổng số kiểm thử cập nhật:**
+   - 241 / 241 PASS toàn monorepo (Worker: 191, Miniapp: 36, Admin: 14, 0 fail, 0 skipped).
+

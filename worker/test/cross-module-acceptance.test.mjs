@@ -461,7 +461,8 @@ test('B2.5 Cross-Module: Admin operations readiness endpoint returns accurate D1
 
   // Invariants verification:
   assert.equal(readyData.system.databaseConnected, true);
-  assert.equal(readyData.system.appliedMigrationsCount, 15);
+  assert.equal(readyData.system.expectedMigrationsCount, 15);
+  assert.equal(readyData.system.migrationVerificationStatus, 'UNKNOWN');
   assert.equal(readyData.invariants.zeroOversoldTemplates, true);
   assert.equal(readyData.invariants.zeroOversoldSegments, true);
   assert.equal(readyData.invariants.zeroGhostVoucherSpins, true);

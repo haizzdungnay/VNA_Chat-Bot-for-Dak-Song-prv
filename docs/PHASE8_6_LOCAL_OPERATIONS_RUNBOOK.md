@@ -18,7 +18,7 @@
   + `ENVIRONMENT`: `development`
   + `MOCK_PAYMENT_ENABLED`: `true` (Chỉ bật trên dev/test/staging; cấm tuyệt đối trên production)
   + `ADMIN_DEV_MOCK_AUTH`: `true` (Cho phép giả lập admin `admin@daksong.vn` khi kiểm thử local không có CF Access)
-  + `ADMIN_ENCRYPTION_KEY`: `1234567890123456` (Khóa AES-GCM 16 bytes giải mã cấu hình AI)
+  + `ADMIN_ENCRYPTION_KEY`: `1234567890123456` (CẢNH BÁO: KHÓA MẪU NÀY CHỈ DÙNG CHO LOCAL DEV / TEST, TUYỆT ĐỐI KHÔNG DÙNG CHO PRODUCTION)
   + `ADMIN_AI_CONFIG_ENABLED`: `true`
   + `CORS_ALLOW_ORIGIN`: `*`
 
@@ -37,6 +37,8 @@ cd worker
 npx wrangler d1 migrations apply dak-song-db --local
 cd ..
 ```
+Sau khi áp dụng, bảng metadata `d1_migrations` trong D1 SQLite sẽ ghi nhận đủ 15 migrations (`0001_initial.sql` đến `0015_rewards_time_quota_hardening.sql`).
+Hệ thống Admin tại `/api/admin/operations/readiness` sẽ tự động xác minh và báo trạng thái `VERIFIED (15/15)`. Nếu chạy trên SQLite in-memory không có bảng metadata, hệ thống sẽ trả trạng thái trung thực `UNKNOWN` thay vì giả định thành công.
 *Lưu ý an toàn:* Tuyệt đối KHÔNG truyền cờ `--remote` để tránh tác động CSDL Cloudflare D1 đám mây.
 
 ---

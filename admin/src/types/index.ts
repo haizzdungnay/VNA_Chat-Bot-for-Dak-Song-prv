@@ -316,7 +316,10 @@ export interface AdminOperationsReadiness {
     timestampVietnam: string;
     environment: string;
     databaseConnected: boolean;
-    appliedMigrationsCount: number;
+    expectedMigrationsCount: number;
+    verifiedAppliedMigrationsCount: number | null;
+    migrationVerificationStatus: "VERIFIED" | "INCOMPLETE" | "UNKNOWN";
+    migrationDiscrepancyReason?: string | null;
   };
   modules: {
     identity: { name: string; status: string; mode: string; usersCount: number; activeSessionsCount: number };
@@ -327,11 +330,17 @@ export interface AdminOperationsReadiness {
   };
   invariants: {
     quizCompletedMatchesStats: boolean;
+    quizUserDiscrepancyCount: number;
+    quizIntegrityPassed: boolean;
     rewardSpinsMatchesUserCounters: boolean;
+    rewardUserDiscrepancyCount: number;
+    rewardIntegrityPassed: boolean;
     zeroOversoldTemplates: boolean;
     zeroOversoldSegments: boolean;
     zeroGhostVoucherSpins: boolean;
     overallIntegrity: boolean;
+    overallStatus: "PASS" | "FAIL";
+    overallStatusLabel: string;
   };
 }
 
