@@ -26,6 +26,7 @@ const TAB_TITLES: Record<AdminTab, string> = {
   profiles: "Cấu hình AI & Profiles",
   logs: "Nhật ký hệ thống & Thống kê",
   settings: "Tình trạng hạ tầng & Thiết lập",
+  operations: "Vận hành & Nghiệm thu tích hợp",
 };
 
 export const Header: React.FC<HeaderProps> = ({

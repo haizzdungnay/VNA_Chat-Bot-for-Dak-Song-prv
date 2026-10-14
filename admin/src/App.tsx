@@ -28,6 +28,7 @@ import { RewardCampaignsPage } from "./pages/RewardCampaignsPage";
 import { RewardSpinsPage } from "./pages/RewardSpinsPage";
 import { RewardRedemptionsPage } from "./pages/RewardRedemptionsPage";
 import { RewardAnalyticsPage } from "./pages/RewardAnalyticsPage";
+import { OperationsPage } from "./pages/OperationsPage";
 
 
 export const App: React.FC = () => {
@@ -205,6 +206,7 @@ export const App: React.FC = () => {
           {currentTab === "reward_spins" && <RewardSpinsPage onNotify={addToast} />}
           {currentTab === "reward_redemptions" && <RewardRedemptionsPage onNotify={addToast} />}
           {currentTab === "reward_analytics" && <RewardAnalyticsPage onNotify={addToast} />}
+          {currentTab === "operations" && <OperationsPage onNotify={addToast} />}
 
           {/* System & AI Modules */}
           {currentTab === "overview" && (

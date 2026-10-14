@@ -95,7 +95,8 @@ export type AdminTab =
   | "visitors"
   | "profiles"
   | "logs"
-  | "settings";
+  | "settings"
+  | "operations";
 
 
 
@@ -305,6 +306,32 @@ export interface AdminRewardAnalytics {
     totalNoWins: number;
     uniqueSpinners: number;
     winRate: number;
+  };
+}
+
+// Phase 8.6 Operations & Acceptance Types
+export interface AdminOperationsReadiness {
+  system: {
+    timestampUtc: string;
+    timestampVietnam: string;
+    environment: string;
+    databaseConnected: boolean;
+    appliedMigrationsCount: number;
+  };
+  modules: {
+    identity: { name: string; status: string; mode: string; usersCount: number; activeSessionsCount: number };
+    aiPlanner: { name: string; status: string; mode: string; itinerariesCount: number };
+    bookingAndPayment: { name: string; status: string; mode: string; label: string; toursCount: number; bookingsCount: number; paymentAttemptsCount: number; refundsCount: number };
+    tourismQuiz: { name: string; status: string; mode: string; publishedQuestionsCount: number; challengesCount: number; totalAttemptsCount: number; completedAttemptsCount: number; antiCheatLeakageProtected: boolean };
+    rewardsAndLuckySpin: { name: string; status: string; mode: string; label: string; campaignsCount: number; completedSpinsCount: number; vouchersIssuedCount: number; vouchersRedeemedCount: number; giftClaimsCount: number };
+  };
+  invariants: {
+    quizCompletedMatchesStats: boolean;
+    rewardSpinsMatchesUserCounters: boolean;
+    zeroOversoldTemplates: boolean;
+    zeroOversoldSegments: boolean;
+    zeroGhostVoucherSpins: boolean;
+    overallIntegrity: boolean;
   };
 }
 

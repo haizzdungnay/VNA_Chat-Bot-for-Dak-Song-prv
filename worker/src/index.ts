@@ -89,6 +89,8 @@ import {
   adminVisitorsRoute,
   adminLogsRoute,
   adminSystemRoute,
+  adminOperationsReadinessRoute,
+  adminOperationsExportRoute,
 } from "./routes/admin";
 import {
   zaloAuthRoute,
@@ -178,6 +180,8 @@ router.post("/api/admin/ai-profiles/rollback", adminProfileRollbackRoute);
 router.get("/api/admin/visitors", adminVisitorsRoute);
 router.get("/api/admin/logs", adminLogsRoute);
 router.get("/api/admin/system", adminSystemRoute);
+router.get("/api/admin/operations/readiness", adminOperationsReadinessRoute);
+router.get("/api/admin/operations/export", adminOperationsExportRoute);
 // Phase 8.3 Business Operations & Booking Routes
 router.get("/api/tours", toursListRoute);
 router.get("/api/tours/:id", tourDetailRoute);

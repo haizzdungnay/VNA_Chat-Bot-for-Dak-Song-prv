@@ -25,6 +25,7 @@ import type {
   AdminRewardWalletItem,
   AdminRewardAnalytics,
   AdminRewardGiftClaim,
+  AdminOperationsReadiness,
 } from "../types";
 
 export class AdminApiError extends Error {
@@ -546,5 +547,14 @@ export const adminApi = {
 
   getRewardExportUrl(): string {
     return getApiBaseUrl() + "/api/admin/rewards/export";
+  },
+
+  // ==================== PHASE 8.6 OPERATIONS & ACCEPTANCE ====================
+  getOperationsReadiness(): Promise<AdminOperationsReadiness> {
+    return request<AdminOperationsReadiness>("/api/admin/operations/readiness");
+  },
+
+  getOperationsExportUrl(): string {
+    return getApiBaseUrl() + "/api/admin/operations/export";
   },
 };

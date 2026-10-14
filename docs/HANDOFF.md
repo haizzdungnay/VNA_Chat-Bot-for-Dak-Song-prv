@@ -69,40 +69,30 @@ Toan bo database D1 local nam tai `worker/.wrangler/state/v3/d1`.
    - **Server-Authoritative Quiz Engine**: Client khong duoc gui diem; tinh diem qua subquery SQL long truc tiep trong atomic batch (`UPDATE quiz_attempts ... WHERE status = 'in_progress'` + `optimistic_lock_guard` + `quiz_user_stats` UPSERT); chong race condition giua submitAnswer va finishAttempt.
    - **Chong gian lan & Che giau dap an**: UNIQUE constraint `(user_id, business_date)` chan tuyet doi thi lap Daily Challenge; response envelope giau 100% dap an dung va giai thich khi `in_progress`.
    - **Doi soat so lieu (`reconcileUserStats`)**: Cau lenh SQL atomic duy nhat gom SELECT va UPSERT, dong bo `total_attempts = completed_attempts` cho cac bai thi da chot, phuc hoi trung thuc du lieu khi bi sai lech.
+5. **Phase 8.5 / 8.5.1 / 8.5.2 / 8.5.3 — Voucher Wallet, Lucky Spin & Reward Management**:
+   - **Vòng quay may mắn (Lucky Spin)**: Server-authoritative Web Crypto rejection-sampling RNG, atomic D1 batch, CAS optimistic lock guard, an toàn tồn kho hữu hạn không âm, không quà ảo.
+   - **Ví Voucher & Quà tặng**: Bảng `reward_wallet_items` và `reward_gift_claims`, xác nhận đổi quà tại quầy một lần duy nhất (`reward_redemptions`), chuẩn hóa thời gian `unixepoch()` instant.
+   - **Giới hạn lượt quay người dùng (Per-User Quota)**: Bảng `reward_user_campaign_spins` bảo vệ giới hạn quay nguyên tử dưới tranh chấp đa luồng.
+6. **Phase 8.6 — Operations, Admin Readiness & Cross-Module Acceptance**:
+   - Phân hệ vận hành Admin (`/api/admin/operations/readiness`) tự động kiểm chứng 5 phân hệ cốt lõi và 5 quy tắc bất biến dữ liệu (invariants).
+   - Xuất báo cáo nghiệm thu CSV chuẩn UTF-8 BOM, chống formula injection.
+   - Bộ kiểm thử tích hợp liên phân hệ `cross-module-acceptance.test.mjs` (Identity -> Quiz -> Rewards -> Booking -> Planner -> Admin Ops).
+   - Sổ tay vận hành cục bộ `docs/PHASE8_6_LOCAL_OPERATIONS_RUNBOOK.md`.
 
 ---
 
-## 5. TINH TRANG KIEM THU (TEST SUITE STATUS)
-- **Miniapp Tests:** **32 / 32 PASS** (`npm test -w miniapp`)
-- **Admin Tests:** **10 / 10 PASS** (`npm test -w admin`)
-- **Worker Tests:** **149 / 149 PASS** (`npm test -w worker`)
-  - Gom day du 17 file kiem thu: `admin-backend`, `ai-config-switch`, `business-booking`, `chat-e2e`, `d1-concurrency`, `hardening-concurrency`, `hardening-validation-d1` (P1-05 live binding), `identity-auth`, `migrations` (fresh 0001->0012 & upgrade), `openai-compatible`, `quiz-concurrency-tier-c` (live HTTP workerd 8788), `router`, `security`, `sync-adapter`, `tourism-quiz` (24 scenarios), `travel-planner`, `visitor-consent`.
-- **TONG TEST TOAN DU AN:** **191 / 191 PASS (0 FAIL, 0 SKIPPED)**.
+## 5. TINH TRANG KIEM THU (TEST SUITE STATUS - PHASE 8.6)
+- **Miniapp Tests:** **36 / 36 PASS** (`npm test -w miniapp`)
+- **Admin Tests:** **14 / 14 PASS** (`npm test -w admin`)
+- **Worker Tests:** **181 / 181 PASS** (`npm test -w worker`, 20 test files bao gom Tier C live workerd HTTP 8788)
+- **TONG TEST TOAN DU AN:** **231 / 231 PASS (0 FAIL, 0 SKIPPED)**.
 - **Typecheck:** 0 loi TypeScript tren ca 3 workspace (`npm run --workspaces typecheck`).
-- **Production Build:** Ca 3 workspace build thanh cong (`npm run --workspaces build`).
+- **Production Build:** Ca 3 workspace build thanh cong 100% (`npm run --workspaces build`).
 
 ---
 
 ## 6. SO DANG KY QA & CAC DIEM CON MO (QA REGISTER)
-1. **Cloudflare D1 Remote Distributed Concurrency:** Concurrency va transaction atomicity da chung minh hoan chinh tren local workerd HTTP socket va SQLite engine. Kiem tra tranh chap da vung tren edge remote Cloudflare giu trang thai **OPEN** vi khong deploy remote.
-2. **Historical Refund Reconciliation (Phase 8.3):** Cot `timestamp_provenance` da luu vet, doi soat ngan hang thuc te giu trang thai **OPEN** cho cong thanh toan that.
-
----
-
-## 7. QUY TRINH TIEP TUC CHO PHIEN MOI (LENH SAN SANG)
-Khi bat dau phien lam viec moi:
-1. **Kiem tra trang thai Git:**
-   ```bash
-   git status
-   git log -1 --oneline
-   ```
-   Xac nhan dang o nhanh `feature/phase8-tourism-quiz`, HEAD `3b6dc04`.
-2. **Khoi dong cac dich vu local:**
-   - Worker API: `cd worker; npx wrangler dev --port 8788 --ip 127.0.0.1`
-   - Miniapp Web: `cd miniapp; npm run dev`
-   - Admin Console: `cd admin; npm run dev`
-3. **Ke hoach giai doan ke tiep:**
-   **Phase 8.5 — Voucher Wallet, Lucky Spin & Reward Management**
-   - Tieu thu su kien hoan thanh Quiz (`quiz_attempt_completed`, diem so, perfect score).
-   - Phat hanh voucher vao vi ca nhan an toan, chong double-claim bang bang idempotency.
-   - Vong quay may man (Lucky Spin) voi ty le cau hinh tu Admin Backoffice.
+1. **Cloudflare D1 Remote Distributed Concurrency:** Giữ trạng thái **OPEN** chờ phase deploy remote chính thức.
+2. **Historical Refund Reconciliation (Phase 8.3):** Giữ trạng thái **OPEN** chờ cổng thanh toán thực tế.
+3. **Thương mại hóa Voucher Đối tác:** Giữ trạng thái **OPEN**; toàn bộ voucher hiện tại là DEMO mô phỏng nghiệp vụ.
+4. **Đăng ký Zalo Mini App Production:** Giữ trạng thái **OPEN** chờ phê duyệt Zalo Platform.

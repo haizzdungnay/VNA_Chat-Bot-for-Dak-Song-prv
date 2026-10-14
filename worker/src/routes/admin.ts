@@ -223,3 +223,40 @@ export async function adminSystemRoute(
   return jsonResponse(status, 200, env, NO_STORE);
 }
 
+export async function adminOperationsReadinessRoute(
+  req: Request,
+  _params: Record<string, string>,
+  env: Env
+): Promise<Response> {
+  const auth = await authenticateAdmin(req, env);
+  if (!auth.authenticated) {
+    return errorResponse(auth.error || "Unauthorized", auth.status || 401, env, NO_STORE);
+  }
+
+  const service = new AdminService(env);
+  const data = await service.getOperationsReadiness();
+  return jsonResponse(data, 200, env, NO_STORE);
+}
+
+export async function adminOperationsExportRoute(
+  req: Request,
+  _params: Record<string, string>,
+  env: Env
+): Promise<Response> {
+  const auth = await authenticateAdmin(req, env);
+  if (!auth.authenticated) {
+    return errorResponse(auth.error || "Unauthorized", auth.status || 401, env, NO_STORE);
+  }
+
+  const service = new AdminService(env);
+  const csv = await service.exportOperationsCsv();
+  return new Response(csv, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="vna_dak_song_operations_readiness.csv"',
+      "Cache-Control": "no-store",
+    },
+  });
+}
+

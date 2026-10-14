@@ -189,6 +189,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <span>Hạ tầng & Cài đặt</span>
         </button>
+
+        <button
+          className={`nav-item ${currentTab === "operations" ? "active" : ""}`}
+          onClick={() => onSelectTab("operations")}
+        >
+          <span>Nghiệm thu & Vận hành</span>
+          <span className="nav-badge" style={{ backgroundColor: "#059669", color: "#ffffff" }}>8.6</span>
+        </button>
       </nav>
 
       <div className="sidebar-footer">
