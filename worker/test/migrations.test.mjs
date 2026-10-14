@@ -360,6 +360,99 @@ test('Fresh migration 0015_rewards_time_quota_hardening: creates reward_user_cam
   const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
   assert.equal(fkViolations.length, 0, 'Zero foreign key violations after 0015');
 });
+test('P2-RWD-11: Upgrade migration 0015 with historical completed & failed spins: backfills reward_user_campaign_spins correctly for >= 2 users x 2 campaigns', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(m1Sql);
+  db.exec(m2Sql);
+  db.exec(m3Sql);
+  db.exec(m4Sql);
+  db.exec(m5Sql);
+  db.exec(m6Sql);
+  db.exec(m7Sql);
+  db.exec(m8Sql);
+  db.exec(m9Sql);
+  db.exec(m10Sql);
+  db.exec(m11Sql);
+  db.exec(m12Sql);
+  db.exec(m13Sql);
+  db.exec(m14Sql);
+
+  // Seed 2 users
+  db.exec("INSERT INTO users (id, email, display_name, status) VALUES ('user-mig-1', 'mig1@example.com', 'User Mig 1', 'active');");
+  db.exec("INSERT INTO users (id, email, display_name, status) VALUES ('user-mig-2', 'mig2@example.com', 'User Mig 2', 'active');");
+
+  // Seed 2 campaigns
+  db.exec("INSERT INTO reward_campaigns (id, code, title, status, created_at, updated_at) VALUES ('cmp-mig-a', 'CAMP_A', 'Campaign A', 'published', datetime('now'), datetime('now'));");
+  db.exec("INSERT INTO reward_campaigns (id, code, title, status, created_at, updated_at) VALUES ('cmp-mig-b', 'CAMP_B', 'Campaign B', 'published', datetime('now'), datetime('now'));");
+
+  // Seed wheels: 2 wheels for campaign A, 1 wheel for campaign B
+  db.exec("INSERT INTO reward_spin_wheels (id, campaign_id, title, status) VALUES ('wheel-mig-a1', 'cmp-mig-a', 'Wheel A1', 'active');");
+  db.exec("INSERT INTO reward_spin_wheels (id, campaign_id, title, status) VALUES ('wheel-mig-a2', 'cmp-mig-a', 'Wheel A2', 'active');");
+  db.exec("INSERT INTO reward_spin_wheels (id, campaign_id, title, status) VALUES ('wheel-mig-b1', 'cmp-mig-b', 'Wheel B1', 'active');");
+
+  // Seed segments
+  db.exec("INSERT INTO reward_spin_segments (id, wheel_id, order_index, label, segment_type, weight) VALUES ('seg-ma1', 'wheel-mig-a1', 1, 'No win', 'no_win', 100);");
+  db.exec("INSERT INTO reward_spin_segments (id, wheel_id, order_index, label, segment_type, weight) VALUES ('seg-ma2', 'wheel-mig-a2', 1, 'No win', 'no_win', 100);");
+  db.exec("INSERT INTO reward_spin_segments (id, wheel_id, order_index, label, segment_type, weight) VALUES ('seg-mb1', 'wheel-mig-b1', 1, 'No win', 'no_win', 100);");
+
+  // Seed historical spin attempts:
+  // User 1 in Campaign A: 2 completed spins (1 across wheel A1, 1 across wheel A2) + 1 FAILED spin
+  db.exec("INSERT INTO reward_spin_attempts (id, user_id, wheel_id, segment_id, result_type, result_snapshot_json, status, created_at) VALUES ('att-1', 'user-mig-1', 'wheel-mig-a1', 'seg-ma1', 'no_win', '{}', 'completed', datetime('now', '-2 days'));");
+  db.exec("INSERT INTO reward_spin_attempts (id, user_id, wheel_id, segment_id, result_type, result_snapshot_json, status, created_at) VALUES ('att-2', 'user-mig-1', 'wheel-mig-a2', 'seg-ma2', 'no_win', '{}', 'completed', datetime('now', '-1 day'));");
+  db.exec("INSERT INTO reward_spin_attempts (id, user_id, wheel_id, segment_id, result_type, result_snapshot_json, status, created_at) VALUES ('att-failed', 'user-mig-1', 'wheel-mig-a1', 'seg-ma1', 'no_win', '{}', 'failed', datetime('now', '-1 day'));");
+
+  // User 1 in Campaign B: 1 completed spin
+  db.exec("INSERT INTO reward_spin_attempts (id, user_id, wheel_id, segment_id, result_type, result_snapshot_json, status, created_at) VALUES ('att-3', 'user-mig-1', 'wheel-mig-b1', 'seg-mb1', 'no_win', '{}', 'completed', datetime('now', '-1 hour'));");
+
+  // User 2 in Campaign A: 3 completed spins
+  db.exec("INSERT INTO reward_spin_attempts (id, user_id, wheel_id, segment_id, result_type, result_snapshot_json, status, created_at) VALUES ('att-4', 'user-mig-2', 'wheel-mig-a1', 'seg-ma1', 'no_win', '{}', 'completed', datetime('now', '-3 days'));");
+  db.exec("INSERT INTO reward_spin_attempts (id, user_id, wheel_id, segment_id, result_type, result_snapshot_json, status, created_at) VALUES ('att-5', 'user-mig-2', 'wheel-mig-a1', 'seg-ma1', 'no_win', '{}', 'completed', datetime('now', '-2 days'));");
+  db.exec("INSERT INTO reward_spin_attempts (id, user_id, wheel_id, segment_id, result_type, result_snapshot_json, status, created_at) VALUES ('att-6', 'user-mig-2', 'wheel-mig-a2', 'seg-ma2', 'no_win', '{}', 'completed', datetime('now', '-1 day'));");
+
+  // Pre-migration snapshot counts
+  const attemptsCountBefore = db.prepare('SELECT count(*) as count FROM reward_spin_attempts').get().count;
+  assert.equal(attemptsCountBefore, 7);
+
+  // Apply migration 0015
+  assert.doesNotThrow(() => db.exec(m15Sql), '0015 should apply cleanly over preexisting historical spin data');
+
+  // Verify backfilled counters:
+  // 1. (cmp-mig-a, user-mig-1) must be exactly 2 (failed attempt att-failed MUST NOT be counted!)
+  const u1a = db.prepare("SELECT completed_spins FROM reward_user_campaign_spins WHERE campaign_id = 'cmp-mig-a' AND user_id = 'user-mig-1'").get();
+  assert.equal(u1a?.completed_spins, 2, 'User 1 in Campaign A must have exactly 2 completed spins');
+
+  // 2. (cmp-mig-b, user-mig-1) must be exactly 1
+  const u1b = db.prepare("SELECT completed_spins FROM reward_user_campaign_spins WHERE campaign_id = 'cmp-mig-b' AND user_id = 'user-mig-1'").get();
+  assert.equal(u1b?.completed_spins, 1, 'User 1 in Campaign B must have exactly 1 completed spin');
+
+  // 3. (cmp-mig-a, user-mig-2) must be exactly 3 across multiple wheels
+  const u2a = db.prepare("SELECT completed_spins FROM reward_user_campaign_spins WHERE campaign_id = 'cmp-mig-a' AND user_id = 'user-mig-2'").get();
+  assert.equal(u2a?.completed_spins, 3, 'User 2 in Campaign A must have exactly 3 completed spins');
+
+  // 4. (cmp-mig-b, user-mig-2) has 0 spins -> row not exists
+  const u2b = db.prepare("SELECT completed_spins FROM reward_user_campaign_spins WHERE campaign_id = 'cmp-mig-b' AND user_id = 'user-mig-2'").get();
+  assert.equal(u2b, undefined, 'User 2 with 0 spins in Campaign B has no backfill row');
+
+  // Verify historical data preservation: attempts count unchanged
+  const attemptsCountAfter = db.prepare('SELECT count(*) as count FROM reward_spin_attempts').get().count;
+  assert.equal(attemptsCountAfter, attemptsCountBefore, 'Historical spin attempts must not be mutated or deleted');
+
+  // Verify foreign key integrity
+  const fkViolations = db.prepare('PRAGMA foreign_key_check').all();
+  assert.equal(fkViolations.length, 0, 'Zero FK violations after backfill');
+
+  // Reconciliation query: 0 mismatches between ledger and counter
+  const mismatches = db.prepare(`
+    SELECT s.campaign_id, s.user_id, s.completed_spins, COUNT(a.id) as ledger_count
+    FROM reward_user_campaign_spins s
+    JOIN reward_spin_wheels w ON s.campaign_id = w.campaign_id
+    JOIN reward_spin_attempts a ON w.id = a.wheel_id AND a.user_id = s.user_id
+    WHERE a.status = 'completed'
+    GROUP BY s.campaign_id, s.user_id
+    HAVING s.completed_spins != ledger_count
+  `).all();
+  assert.equal(mismatches.length, 0, 'Reconciliation invariant: zero discrepancies between ledger and counter');
+});
 
 test('Preexisting database upgrade path: upgrades safely without data loss to 0006', () => {
   const db = new DatabaseSync(':memory:');

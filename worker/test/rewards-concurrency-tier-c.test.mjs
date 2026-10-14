@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 const LIVE_BASE_URL = 'http://127.0.0.1:8788';
 
@@ -491,7 +494,7 @@ test('Tier C: Live Worker + D1 Rewards, Lucky Spin & Voucher Wallet HTTP Verific
       campaignType: 'lucky_spin',
       totalQuota: 10,
       perUserLimit: 1,
-      eligibilityRules: { allow_free_daily: true },
+      eligibilityRules: { allow_free_daily: true, quiz_reward_min_score: 0 },
     }),
   });
   const limitCamp = (await limitCampRes.json()).campaign;
@@ -532,6 +535,58 @@ test('Tier C: Live Worker + D1 Rewards, Lucky Spin & Voucher Wallet HTTP Verific
     body: JSON.stringify({ campaignId: limitCamp.id }),
   });
 
+  // P2-RWD-10: User 1 completes a quiz attempt to legitimately obtain a 2nd independent entitlement
+  const quizStartRes = await fetch(`${LIVE_BASE_URL}/api/quiz/attempts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token1 },
+    body: JSON.stringify({ attemptType: 'practice', questionCount: 2 }),
+  });
+  assert.equal(quizStartRes.status, 201);
+  const quizStartData = await quizStartRes.json();
+  const quizAttId = quizStartData.attempt.attemptId;
+  const qItem = quizStartData.attempt.questions[0];
+
+  // Submit answer and finalize quiz
+  await fetch(`${LIVE_BASE_URL}/api/quiz/attempts/${quizAttId}/answers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token1 },
+    body: JSON.stringify({ attemptQuestionId: qItem.id, selectedOptionId: qItem.options[0].id }),
+  });
+  const quizFinRes = await fetch(`${LIVE_BASE_URL}/api/quiz/attempts/${quizAttId}/finish`, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token1 },
+  });
+  assert.equal(quizFinRes.status, 200);
+
+  // Claim quiz reward for limitCamp.id -> grants 2nd distinct entitlement
+  const claimQuizRes = await fetch(`${LIVE_BASE_URL}/api/rewards/spins/claim-quiz`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token1 },
+    body: JSON.stringify({ quizAttemptId: quizAttId, campaignId: limitCamp.id }),
+  });
+  assert.equal(claimQuizRes.status, 200);
+  const claimQuizData = await claimQuizRes.json();
+  assert.ok(claimQuizData.entitlementId);
+
+  // Connect to local D1 SQLite database to assert pre-conditions
+  const d1Dir = fs.existsSync(path.resolve('.wrangler/state/v3/d1/miniflare-D1DatabaseObject'))
+    ? path.resolve('.wrangler/state/v3/d1/miniflare-D1DatabaseObject')
+    : path.resolve('worker/.wrangler/state/v3/d1/miniflare-D1DatabaseObject');
+  const d1File = fs.readdirSync(d1Dir).find((f) => f.endsWith('.sqlite') && !f.includes('metadata'));
+  assert.ok(d1File, 'Local D1 SQLite database file must exist');
+  const rawD1 = new DatabaseSync(path.join(d1Dir, d1File), { readOnly: true });
+
+  // P2-RWD-10 ASSERTION: Verify User 1 possesses exactly 2 distinct active, unconsumed entitlements
+  const entBefore = rawD1.prepare(
+    `SELECT id, total_granted, consumed_count, grant_type
+     FROM reward_entitlements
+     WHERE user_id = ? AND campaign_id = ? AND (expires_at IS NULL OR unixepoch() < unixepoch(expires_at))`
+  ).all(u1Auth.user.id, limitCamp.id);
+  assert.equal(entBefore.length, 2, 'User 1 must possess exactly 2 active entitlements for limitCamp');
+  assert.equal(entBefore[0].consumed_count, 0, 'Entitlement 1 must be unconsumed');
+  assert.equal(entBefore[1].consumed_count, 0, 'Entitlement 2 must be unconsumed');
+  assert.notEqual(entBefore[0].id, entBefore[1].id, 'Entitlement IDs must be strictly distinct');
+
   // User 1 fires TWO concurrent HTTP spin requests with 2 distinct valid idempotency keys
   const [limSpin1, limSpin2] = await Promise.all([
     fetch(`${LIVE_BASE_URL}/api/rewards/spins`, {
@@ -564,6 +619,25 @@ test('Tier C: Live Worker + D1 Rewards, Lucky Spin & Voucher Wallet HTTP Verific
     limStatuses.includes(403) || limStatuses.includes(409) || limStatuses.includes(400),
     `Concurrent spin exceeding per_user_limit must be rejected with 4xx, got statuses: ${limStatuses.join(', ')}`
   );
+
+  // P2-RWD-10 ASSERTIONS ON D1 AFTER CONCURRENT EXECUTION:
+  const userSpinsD1 = rawD1.prepare(
+    'SELECT completed_spins FROM reward_user_campaign_spins WHERE campaign_id = ? AND user_id = ?'
+  ).get(limitCamp.id, u1Auth.user.id);
+  assert.equal(userSpinsD1?.completed_spins, 1, 'reward_user_campaign_spins must be exactly 1 in D1');
+
+  const campD1 = rawD1.prepare('SELECT total_spins_count FROM reward_campaigns WHERE id = ?').get(limitCamp.id);
+  assert.equal(campD1?.total_spins_count, 1, 'Campaign total_spins_count must be exactly 1 in D1');
+
+  const spinAttemptsD1 = rawD1.prepare(
+    "SELECT count(*) as c FROM reward_spin_attempts WHERE user_id = ? AND wheel_id = ? AND status = 'completed'"
+  ).get(u1Auth.user.id, limitWheel.id);
+  assert.equal(spinAttemptsD1?.c, 1, 'Completed spin attempts ledger must be exactly 1 in D1');
+
+  const entAfter = rawD1.prepare(
+    'SELECT sum(consumed_count) as total_consumed FROM reward_entitlements WHERE user_id = ? AND campaign_id = ?'
+  ).get(u1Auth.user.id, limitCamp.id);
+  assert.equal(entAfter?.total_consumed, 1, 'SUM(consumed_count) across the 2 entitlements must be exactly 1');
 
   // Idempotent replay of the winning key returns the EXACT same stored result!
   const winKey = limSpin1.status === 200 ? 'idem-lim-u1-a-' + runTag : 'idem-lim-u1-b-' + runTag;

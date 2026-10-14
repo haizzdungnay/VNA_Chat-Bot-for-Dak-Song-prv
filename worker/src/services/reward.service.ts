@@ -648,25 +648,20 @@ export class RewardService {
       ).bind(campaign.id, userId)
     );
 
-    if (campaign.per_user_limit > 0) {
-      stmts.push(
-        this.env.DB.prepare(
-          `UPDATE reward_user_campaign_spins
-           SET completed_spins = completed_spins + 1, updated_at = datetime('now')
-           WHERE campaign_id = ? AND user_id = ? AND completed_spins < ?`
-        ).bind(campaign.id, userId, campaign.per_user_limit)
-      );
-      stmts.push(this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"));
-      stmts.push(this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"));
-    } else {
-      stmts.push(
-        this.env.DB.prepare(
-          `UPDATE reward_user_campaign_spins
-           SET completed_spins = completed_spins + 1, updated_at = datetime('now')
-           WHERE campaign_id = ? AND user_id = ?`
-        ).bind(campaign.id, userId)
-      );
-    }
+    // P2-RWD-12: Dynamic authoritative per_user_limit check directly in SQL subquery
+    stmts.push(
+      this.env.DB.prepare(
+        `UPDATE reward_user_campaign_spins
+         SET completed_spins = completed_spins + 1, updated_at = datetime('now')
+         WHERE campaign_id = ? AND user_id = ?
+           AND (
+             (SELECT per_user_limit FROM reward_campaigns WHERE id = ?) = 0
+             OR completed_spins < (SELECT per_user_limit FROM reward_campaigns WHERE id = ?)
+           )`
+      ).bind(campaign.id, userId, campaign.id, campaign.id)
+    );
+    stmts.push(this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"));
+    stmts.push(this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"));
 
     // Guard wheel active state
     stmts.push(

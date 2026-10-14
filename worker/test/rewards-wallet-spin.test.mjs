@@ -1025,4 +1025,56 @@ test('HTTP Router E2E: Tourist spin, wallet inquiry, and admin analytics with CS
   const csvText = new TextDecoder('utf-8').decode(csvBytes);
   assert.ok(csvText.includes('BÁO CÁO MÃ ƯU ĐÃI & PHẦN THƯỞNG'));
 });
+// -----------------------------------------------------------------------------
+// 20. P2-RWD-12: DYNAMIC PER_USER_LIMIT GUARD AT COMMIT TIME
+// -----------------------------------------------------------------------------
+test('P2-RWD-12: Dynamic authoritative per_user_limit subquery enforces limit if changed right at commit', async () => {
+  const env = createRewardTestEnv();
+  const service = new RewardService(env);
+  const adminService = new AdminRewardService(env);
+
+  // Setup campaign with per_user_limit = 2
+  const camp = await adminService.createCampaign({
+    code: 'CAMP_DYNAMIC_LIMIT',
+    title: 'Dynamic Limit Campaign',
+    totalQuota: 50,
+    perUserLimit: 2,
+  });
+  await adminService.setCampaignStatus(camp.id, 'published');
+  const wheel = await adminService.createWheel({ campaignId: camp.id, title: 'Wheel Dyn' });
+  await adminService.setWheelSegments(wheel.id, [
+    { label: 'No win', segmentType: 'no_win', weight: 50 },
+    { label: 'Gift', segmentType: 'gift_item', weight: 50 },
+  ]);
+  await adminService.toggleWheelStatus(wheel.id, 'active');
+
+  // Grant Alice 2 turns
+  await env.DB.prepare(`
+    INSERT INTO reward_entitlements (id, user_id, campaign_id, grant_type, total_granted, consumed_count, expires_at, created_at, updated_at)
+    VALUES ('ent-dyn-1', 'user-alice', ?, 'admin_grant', 2, 0, datetime('now', '+1 day'), datetime('now'), datetime('now'))
+  `).bind(camp.id).run();
+
+  // First spin commits cleanly
+  const spin1 = await service.executeSpin('user-alice', { wheelId: wheel.id, campaignId: camp.id, idempotencyKey: 'idem-dyn-spin-1' });
+  assert.equal(spin1.success, true);
+
+  // Now, before second spin commits, Admin decreases per_user_limit to 1 in DB!
+  await env.DB.prepare("UPDATE reward_campaigns SET per_user_limit = 1, updated_at = datetime('now') WHERE id = ?").bind(camp.id).run();
+
+  // Second spin must fail at commit time because completed_spins (1) is NOT < per_user_limit (1)!
+  await assert.rejects(
+    service.executeSpin('user-alice', { wheelId: wheel.id, campaignId: camp.id, idempotencyKey: 'idem-dyn-spin-2' }),
+    /giới hạn tối đa/
+  );
+
+  // Entitlement turn 2 was not consumed!
+  const ent = await env.DB.prepare("SELECT consumed_count FROM reward_entitlements WHERE id = 'ent-dyn-1'").first();
+  assert.equal(ent.consumed_count, 1, 'Second turn must remain unconsumed after rollback');
+
+  // Completed spins counter remains 1
+  const counter = await env.DB.prepare(
+    "SELECT completed_spins FROM reward_user_campaign_spins WHERE campaign_id = ? AND user_id = 'user-alice'"
+  ).bind(camp.id).first();
+  assert.equal(counter.completed_spins, 1);
+});
 
