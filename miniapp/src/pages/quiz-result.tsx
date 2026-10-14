@@ -23,6 +23,10 @@ const QuizResultPage: React.FC = () => {
       setLoading(true);
       setError(null);
       const res = await api.getQuizAttempt(id);
+      if (res.attempt.status === "in_progress") {
+        navigate("/quiz/play?attemptId=" + encodeURIComponent(id));
+        return;
+      }
       setAttempt(res.attempt);
     } catch (err: any) {
       setError(err?.message || "Lỗi khi tải kết quả");

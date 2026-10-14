@@ -1089,8 +1089,12 @@ test('Phase 8.4.4 P2-QZ-07 Scenario 3: 2 completed attempts with 1 daily challen
   assert.equal(stats.completedAttempts, 2);
   assert.equal(stats.dailyChallengesCompleted, 1);
   assert.equal(stats.bestScore, 20, 'bestScore must be max between 20 and 10');
-  assert.ok(stats.totalScore >= 30);
-  assert.ok(stats.lastAttemptAt !== null);
+  assert.equal(stats.totalScore, 30, 'Exact totalScore sum: 20 + 10 = 30');
+  assert.equal(stats.totalCorrect, 3, 'Exact totalCorrect: 2 + 1 = 3');
+  assert.equal(stats.totalQuestionsAnswered, 3, 'Exact questions answered: 2 + 1 = 3');
+  assert.ok(stats.lastAttemptAt !== null, 'lastAttemptAt must be non-null');
+  const att2Row = await env.DB.prepare('SELECT completed_at FROM quiz_attempts WHERE id = ?').bind(att2.attemptId).first();
+  assert.equal(stats.lastAttemptAt, att2Row.completed_at, 'lastAttemptAt must reflect most recent completed attempt');
 });
 
 test('Phase 8.4.4 P2-QZ-07 Scenario 4: Reconcile idempotency over multiple consecutive invocations', async () => {
@@ -1122,9 +1126,9 @@ test('Phase 8.4.4 P2-QZ-07 Scenario 5: Reconcile repairs corrupted stats without
   await quizService.submitAnswer('user-alice', att.attemptId, { attemptQuestionId: q1.id, selectedOptionId: q1Detail.correct_option_id });
   await quizService.finishAttempt('user-alice', att.attemptId);
 
-  // Record initial attempt rows and answers count
-  const attemptsCountBefore = await env.DB.prepare('SELECT count(*) as c FROM quiz_attempts').first();
-  const answersCountBefore = await env.DB.prepare('SELECT count(*) as c FROM quiz_attempt_answers').first();
+  // Snapshot entire attempts and answers content before reconcile
+  const attemptsBefore = await env.DB.prepare('SELECT * FROM quiz_attempts ORDER BY id ASC').all();
+  const answersBefore = await env.DB.prepare('SELECT * FROM quiz_attempt_answers ORDER BY id ASC').all();
 
   // Maliciously tamper with user stats
   await env.DB.prepare(`
@@ -1140,44 +1144,286 @@ test('Phase 8.4.4 P2-QZ-07 Scenario 5: Reconcile repairs corrupted stats without
   assert.equal(repaired.totalScore, 10, 'Repaired totalScore must be 10');
   assert.equal(repaired.bestScore, 10, 'Repaired bestScore must be 10');
 
-  // Assert zero side effects on attempts and answers tables
-  const attemptsCountAfter = await env.DB.prepare('SELECT count(*) as c FROM quiz_attempts').first();
-  const answersCountAfter = await env.DB.prepare('SELECT count(*) as c FROM quiz_attempt_answers').first();
-  assert.equal(attemptsCountAfter.c, attemptsCountBefore.c);
-  assert.equal(answersCountAfter.c, answersCountBefore.c);
+  // Assert zero side effects on attempts and answers rows: snapshot bit-for-bit identical
+  const attemptsAfter = await env.DB.prepare('SELECT * FROM quiz_attempts ORDER BY id ASC').all();
+  const answersAfter = await env.DB.prepare('SELECT * FROM quiz_attempt_answers ORDER BY id ASC').all();
+  assert.deepEqual(attemptsAfter.results, attemptsBefore.results, 'quiz_attempts rows must remain bit-for-bit unchanged');
+  assert.deepEqual(answersAfter.results, answersBefore.results, 'quiz_attempt_answers rows must remain bit-for-bit unchanged');
 });
 
-test('Phase 8.4.4 P2-QZ-07 Scenario 6: Interleaving & race test between reconcileUserStats and finishAttempt in both execution orders', async () => {
+test('Phase 8.4.4 P2-QZ-07 Scenario 6: Controlled barrier & latch concurrency test between reconcileUserStats and finishAttempt in both execution orders', async () => {
+  // Test A: finishAttempt and reconcileUserStats fired concurrently via Promise.all
+  // SQLite transaction serialization ensures atomic execution without stale-write corruption.
+  const envA = createQuizTestEnv();
+  const serviceA = new QuizService(envA);
+
+  const attA = await serviceA.startAttempt('user-alice', { attemptType: 'practice', questionCount: 1 });
+  const qA = attA.questions[0];
+  const qADetail = await envA.DB.prepare('SELECT correct_option_id FROM quiz_attempt_questions WHERE id = ?').bind(qA.id).first();
+  await serviceA.submitAnswer('user-alice', attA.attemptId, { attemptQuestionId: qA.id, selectedOptionId: qADetail.correct_option_id });
+
+  // Fire finishAttempt and reconcileUserStats concurrently via Promise.all
+  const [finResA, recResA] = await Promise.all([
+    serviceA.finishAttempt('user-alice', attA.attemptId),
+    serviceA.reconcileUserStats('user-alice'),
+  ]);
+
+  // Both must resolve successfully
+  assert.equal(finResA.status, 'completed');
+  assert.ok(recResA);
+
+  // Authoritative user stats verification: exactly 1 attempt, 10 score (no stale 0 overwrite)
+  const finalStatsA = await serviceA.getUserStats('user-alice');
+  assert.equal(finalStatsA.totalAttempts, 1, 'Concurrent order A totalAttempts must be 1');
+  assert.equal(finalStatsA.completedAttempts, 1, 'Concurrent order A completedAttempts must be 1');
+  assert.equal(finalStatsA.totalScore, 10, 'Concurrent order A totalScore must be 10');
+
+  // Test B: Opposite initiation order with controlled Promise.all
+  const envB = createQuizTestEnv();
+  const serviceB = new QuizService(envB);
+
+  const attB = await serviceB.startAttempt('user-bob', { attemptType: 'practice', questionCount: 1 });
+  const qB = attB.questions[0];
+  const qBDetail = await envB.DB.prepare('SELECT correct_option_id FROM quiz_attempt_questions WHERE id = ?').bind(qB.id).first();
+  await serviceB.submitAnswer('user-bob', attB.attemptId, { attemptQuestionId: qB.id, selectedOptionId: qBDetail.correct_option_id });
+
+  // Fire reconcile first, immediately followed by finish
+  const [recResB, finResB] = await Promise.all([
+    serviceB.reconcileUserStats('user-bob'),
+    serviceB.finishAttempt('user-bob', attB.attemptId),
+  ]);
+
+  assert.equal(finResB.status, 'completed');
+  assert.ok(recResB);
+
+  // Authoritative stats: run a final reconcile to prove convergence
+  const finalStatsB = await serviceB.reconcileUserStats('user-bob');
+  assert.equal(finalStatsB.totalAttempts, 1, 'Concurrent order B totalAttempts must be 1');
+  assert.equal(finalStatsB.completedAttempts, 1, 'Concurrent order B completedAttempts must be 1');
+  assert.equal(finalStatsB.totalScore, 10, 'Concurrent order B totalScore must be 10');
+
+  // Test C: Demonstration of the 8.4.3 stale-write vulnerability vs 8.4.4 atomic SQL resilience
+  // In 8.4.3: multi-step JavaScript read-then-write would read 0 completed attempts before finish,
+  // then write back 0 AFTER finish committed, destroying the stats.
+  // In 8.4.4: single SQL INSERT...SELECT...ON CONFLICT prevents stale reads because the SELECT
+  // and the UPDATE happen in the same atomic engine lock.
+  const envC = createQuizTestEnv();
+  const serviceC = new QuizService(envC);
+  const attC = await serviceC.startAttempt('user-alice', { attemptType: 'practice', questionCount: 1 });
+  const qC = attC.questions[0];
+  const qCDetail = await envC.DB.prepare('SELECT correct_option_id FROM quiz_attempt_questions WHERE id = ?').bind(qC.id).first();
+  await serviceC.submitAnswer('user-alice', attC.attemptId, { attemptQuestionId: qC.id, selectedOptionId: qCDetail.correct_option_id });
+
+  // Simulate 8.4.3 vulnerability: JS reads state BEFORE finish
+  const staleReadCount = await envC.DB.prepare("SELECT COUNT(*) as c FROM quiz_attempts WHERE user_id = 'user-alice' AND status = 'completed'").first();
+  assert.equal(staleReadCount.c, 0, 'Pre-finish read sees 0 completed attempts');
+
+  // Concurrently, finish commits
+  await serviceC.finishAttempt('user-alice', attC.attemptId);
+  const statsAfterFinish = await serviceC.getUserStats('user-alice');
+  assert.equal(statsAfterFinish.completedAttempts, 1, 'Finish committed 1 completed attempt');
+
+  // If 8.4.3 applied stale read:
+  // UPDATE quiz_user_stats SET completed_attempts = 0 -> would corrupt stats!
+  // But calling 8.4.4 atomic reconcile:
+  const repairedC = await serviceC.reconcileUserStats('user-alice');
+  assert.equal(repairedC.completedAttempts, 1, '8.4.4 atomic reconcile reads authoritative completed state, immune to stale JS snapshot');
+});
+
+// =============================================================================
+// PHASE 8.4.4a P1-QZ-08: ANTI-LEAKAGE OF AGGREGATE GRADING DURING IN_PROGRESS
+// =============================================================================
+
+function inspectNoGradingLeaks(obj, path = '') {
+  if (obj === null || obj === undefined || typeof obj !== 'object') return;
+
+  if (Array.isArray(obj)) {
+    obj.forEach((item, idx) => inspectNoGradingLeaks(item, `${path}[${idx}]`));
+    return;
+  }
+
+  for (const [key, val] of Object.entries(obj)) {
+    const curPath = path ? `${path}.${key}` : key;
+
+    // Allowed public metadata and configurations
+    if ([
+      'scorePerQuestion', 'score_per_question',
+      'maxScore', 'max_score',
+      'questionCount', 'question_count',
+      'totalQuestions', 'total_questions',
+      'answeredCount',
+      'timeLimitSeconds', 'time_limit_seconds',
+      'orderIndex', 'order_index'
+    ].includes(key)) {
+      continue;
+    }
+
+    // Question-level private answers and explanations MUST be undefined
+    if (['isCorrect', 'is_correct', 'correctOptionId', 'correct_option_id', 'points', 'explanation'].includes(key)) {
+      assert.equal(val, undefined, `Forbidden question grading key ${curPath} must be undefined during in_progress`);
+    }
+
+    // Attempt-level and history-level grading metrics MUST be null
+    if ([
+      'score',
+      'correctCount', 'correct_count',
+      'incorrectCount', 'incorrect_count',
+      'unansweredCount', 'unanswered_count',
+      'percentage'
+    ].includes(key)) {
+      assert.equal(val, null, `Grading metric ${curPath} must be null during in_progress, got ${val}`);
+    }
+
+    if (typeof val === 'object' && val !== null) {
+      inspectNoGradingLeaks(val, curPath);
+    }
+  }
+}
+
+test('P1-QZ-08: Practice attempt never leaks aggregate grading (score, counts, percentage) while in_progress', async () => {
   const env = createQuizTestEnv();
   const quizService = new QuizService(env);
 
-  // Order A: Reconcile runs while attempt 1 is in_progress -> then finishAttempt commits.
-  // Stats must accurately reflect the newly completed attempt!
-  const attA = await quizService.startAttempt('user-alice', { attemptType: 'practice', questionCount: 1 });
-  const qA = attA.questions[0];
-  const qADetail = await env.DB.prepare('SELECT correct_option_id FROM quiz_attempt_questions WHERE id = ?').bind(qA.id).first();
-  await quizService.submitAnswer('user-alice', attA.attemptId, { attemptQuestionId: qA.id, selectedOptionId: qADetail.correct_option_id });
+  // 1. Start practice attempt with 2 questions
+  const startRes = await quizService.startAttempt('user-alice', { attemptType: 'practice', questionCount: 2 });
+  assert.equal(startRes.totalQuestions, 2);
+  const q1 = startRes.questions[0];
+  const q2 = startRes.questions[1];
 
-  // Reconcile before finish
-  const statsBeforeFinish = await quizService.reconcileUserStats('user-alice');
-  assert.equal(statsBeforeFinish.completedAttempts, 0);
+  const q1Row = await env.DB.prepare('SELECT correct_option_id FROM quiz_attempt_questions WHERE id = ?').bind(q1.id).first();
+  const q2Row = await env.DB.prepare('SELECT correct_option_id, options_json FROM quiz_attempt_questions WHERE id = ?').bind(q2.id).first();
+  const q2Opts = JSON.parse(q2Row.options_json);
+  const wrongOptForQ2 = q2Opts.find((o) => o.id !== q2Row.correct_option_id).id;
 
-  // Now finish commits
-  await quizService.finishAttempt('user-alice', attA.attemptId);
-  const statsAfterFinish = await quizService.getUserStats('user-alice');
-  assert.equal(statsAfterFinish.completedAttempts, 1);
-  assert.equal(statsAfterFinish.totalScore, 10);
+  // 2. Submit Q1 with CORRECT answer
+  const ans1 = await quizService.submitAnswer('user-alice', startRes.attemptId, {
+    attemptQuestionId: q1.id,
+    selectedOptionId: q1Row.correct_option_id,
+  });
+  assert.equal(ans1.success, true);
+  assert.equal(ans1.isCorrect, undefined, 'submitAnswer must not reveal isCorrect');
 
-  // Order B: finishAttempt completes -> then reconcile runs.
-  // Stats must remain exactly 1 completed attempt, 10 points.
-  const attB = await quizService.startAttempt('user-alice', { attemptType: 'practice', questionCount: 1 });
-  const qB = attB.questions[0];
-  const qBDetail = await env.DB.prepare('SELECT correct_option_id FROM quiz_attempt_questions WHERE id = ?').bind(qB.id).first();
-  await quizService.submitAnswer('user-alice', attB.attemptId, { attemptQuestionId: qB.id, selectedOptionId: qBDetail.correct_option_id });
-  await quizService.finishAttempt('user-alice', attB.attemptId);
+  // Immediately query GET attempt while in_progress: Must NOT reveal score or correctCount!
+  const attAfterQ1 = await quizService.getAttempt('user-alice', startRes.attemptId);
+  assert.equal(attAfterQ1.status, 'in_progress');
+  assert.equal(attAfterQ1.score, null, 'Score must be null while in_progress');
+  assert.equal(attAfterQ1.correctCount, null, 'correctCount must be null while in_progress');
+  assert.equal(attAfterQ1.incorrectCount, null, 'incorrectCount must be null while in_progress');
+  assert.equal(attAfterQ1.unansweredCount, null, 'unansweredCount must be null while in_progress');
+  assert.equal(attAfterQ1.percentage, null, 'percentage must be null while in_progress');
+  assert.equal(attAfterQ1.answeredCount, 1, 'answeredCount can safely report progress');
+  inspectNoGradingLeaks(attAfterQ1);
 
-  const statsAfterBothFinishes = await quizService.reconcileUserStats('user-alice');
-  assert.equal(statsAfterBothFinishes.completedAttempts, 2);
-  assert.equal(statsAfterBothFinishes.totalAttempts, 2);
-  assert.equal(statsAfterBothFinishes.totalScore, 20);
+  // Immediately query GET history: Must NOT reveal score or counts for in_progress attempt!
+  const historyAfterQ1 = await quizService.getUserHistory('user-alice', 1, 10);
+  assert.equal(historyAfterQ1.history.length, 1);
+  const histItemQ1 = historyAfterQ1.history[0];
+  assert.equal(histItemQ1.status, 'in_progress');
+  assert.equal(histItemQ1.score, null);
+  assert.equal(histItemQ1.percentage, null);
+  assert.equal(histItemQ1.correctCount, null);
+  assert.equal(histItemQ1.correct_count, null);
+  assert.equal(histItemQ1.incorrectCount, null);
+  assert.equal(histItemQ1.incorrect_count, null);
+  inspectNoGradingLeaks(historyAfterQ1);
+
+  // 3. Submit Q2 with WRONG answer
+  const ans2 = await quizService.submitAnswer('user-alice', startRes.attemptId, {
+    attemptQuestionId: q2.id,
+    selectedOptionId: wrongOptForQ2,
+  });
+  assert.equal(ans2.success, true);
+  assert.equal(ans2.isCorrect, undefined);
+
+  // Re-verify GET attempt after wrong answer: Still strictly masked!
+  const attAfterQ2 = await quizService.getAttempt('user-alice', startRes.attemptId);
+  assert.equal(attAfterQ2.status, 'in_progress');
+  assert.equal(attAfterQ2.score, null);
+  assert.equal(attAfterQ2.correctCount, null);
+  assert.equal(attAfterQ2.incorrectCount, null);
+  assert.equal(attAfterQ2.percentage, null);
+  assert.equal(attAfterQ2.answeredCount, 2);
+  inspectNoGradingLeaks(attAfterQ2);
+
+  // 4. Now finish attempt: grading is legitimately revealed!
+  const finishRes = await quizService.finishAttempt('user-alice', startRes.attemptId);
+  assert.equal(finishRes.status, 'completed');
+  assert.equal(finishRes.score, 10, 'Authoritative score: 10 out of 20');
+  assert.equal(finishRes.correctCount, 1);
+  assert.equal(finishRes.incorrectCount, 1);
+  assert.equal(finishRes.unansweredCount, 0);
+  assert.equal(finishRes.percentage, 50);
+
+  // Questions now have explanations and correctness
+  assert.equal(finishRes.questions[0].isCorrect, true);
+  assert.equal(finishRes.questions[0].points, 10);
+  assert.ok(finishRes.questions[0].explanation);
+  assert.equal(finishRes.questions[1].isCorrect, false);
+  assert.equal(finishRes.questions[1].points, 0);
+  assert.ok(finishRes.questions[1].explanation);
+
+  // History also now shows completed score
+  const historyAfterFinish = await quizService.getUserHistory('user-alice', 1, 10);
+  assert.equal(historyAfterFinish.history[0].status, 'completed');
+  assert.equal(historyAfterFinish.history[0].score, 10);
+  assert.equal(historyAfterFinish.history[0].correctCount, 1);
+  assert.equal(historyAfterFinish.history[0].incorrectCount, 1);
+  assert.equal(historyAfterFinish.history[0].percentage, 50);
+});
+
+test('P1-QZ-08: Daily Challenge never leaks current score via GET /api/quiz/daily or GET attempt while in_progress', async () => {
+  const env = createQuizTestEnv();
+  const quizService = new QuizService(env);
+  const vnToday = getVnToday();
+
+  // 1. Verify initial daily state
+  const initialDaily = await quizService.getDailyChallenge('user-alice');
+  assert.equal(initialDaily.isOpen, true);
+  assert.equal(initialDaily.hasAttempted, false);
+  assert.equal(initialDaily.score, null);
+
+  // 2. Start daily challenge attempt
+  const startDaily = await quizService.startAttempt('user-alice', {
+    attemptType: 'daily_challenge',
+    challengeId: 'ch-' + vnToday,
+  });
+  assert.ok(startDaily.attemptId);
+
+  // 3. Submit 1 correct answer
+  const q1 = startDaily.questions[0];
+  const q1Row = await env.DB.prepare('SELECT correct_option_id FROM quiz_attempt_questions WHERE id = ?').bind(q1.id).first();
+  await quizService.submitAnswer('user-alice', startDaily.attemptId, {
+    attemptQuestionId: q1.id,
+    selectedOptionId: q1Row.correct_option_id,
+  });
+
+  // Query GET /api/quiz/daily: Must NOT leak score!
+  const midDaily = await quizService.getDailyChallenge('user-alice');
+  assert.equal(midDaily.hasAttempted, true);
+  assert.equal(midDaily.attemptStatus, 'in_progress');
+  assert.equal(midDaily.score, null, 'Daily challenge score MUST be null while attempt is in_progress');
+  inspectNoGradingLeaks(midDaily);
+
+  // Query GET /api/quiz/attempts/:id: Must NOT leak score!
+  const midAttempt = await quizService.getAttempt('user-alice', startDaily.attemptId);
+  assert.equal(midAttempt.status, 'in_progress');
+  assert.equal(midAttempt.score, null);
+  assert.equal(midAttempt.correctCount, null);
+  inspectNoGradingLeaks(midAttempt);
+
+  // Query stats: must not count in_progress attempt
+  const stats = await quizService.getUserStats('user-alice');
+  assert.equal(stats.totalAttempts, 0);
+  assert.equal(stats.completedAttempts, 0);
+  assert.equal(stats.totalScore, 0);
+
+  // 4. Finish attempt: score is now revealed in both attempt and daily challenge
+  await quizService.finishAttempt('user-alice', startDaily.attemptId);
+  const finalDaily = await quizService.getDailyChallenge('user-alice');
+  assert.equal(finalDaily.attemptStatus, 'completed');
+  assert.equal(finalDaily.score, 10);
+
+  const finalAttempt = await quizService.getAttempt('user-alice', startDaily.attemptId);
+  assert.equal(finalAttempt.status, 'completed');
+  assert.equal(finalAttempt.score, 10);
 });

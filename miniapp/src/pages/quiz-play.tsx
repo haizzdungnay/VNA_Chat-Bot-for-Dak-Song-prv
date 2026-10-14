@@ -354,8 +354,8 @@ const QuizPlayPage: React.FC = () => {
           style={{
             padding: "12px 14px",
             borderRadius: 12,
-            background: answeredState.isCorrect ? "#f0fdf4" : "#fef2f2",
-            border: "1px solid " + (answeredState.isCorrect ? "#bbf7d0" : "#fecaca"),
+            background: answeredState.isCorrect ? "#f0fdf4" : (answeredState.isCorrect === false ? "#fef2f2" : "#f1f5f9"),
+            border: "1px solid " + (answeredState.isCorrect ? "#bbf7d0" : (answeredState.isCorrect === false ? "#fecaca" : "#cbd5e1")),
             display: "flex",
             alignItems: "center",
             gap: 10,
@@ -363,18 +363,22 @@ const QuizPlayPage: React.FC = () => {
         >
           <span
             className="material-symbols-outlined"
-            style={{ fontSize: 20, color: answeredState.isCorrect ? "#16a34a" : "#dc2626" }}
+            style={{ fontSize: 20, color: answeredState.isCorrect ? "#16a34a" : (answeredState.isCorrect === false ? "#dc2626" : "#0284c7") }}
           >
-            {answeredState.isCorrect ? "check_circle" : "cancel"}
+            {answeredState.isCorrect ? "check_circle" : (answeredState.isCorrect === false ? "cancel" : "check_circle")}
           </span>
           <span
             style={{
               fontSize: 13,
               fontWeight: 600,
-              color: answeredState.isCorrect ? "#16a34a" : "#dc2626",
+              color: answeredState.isCorrect ? "#16a34a" : (answeredState.isCorrect === false ? "#dc2626" : "#0f172a"),
             }}
           >
-            {answeredState.isCorrect ? "Chính xác! Bạn được cộng " + (attempt?.scorePerQuestion || 10) + " điểm." : "Chưa chính xác! Xem giải thích ở kết quả cuối bài."}
+            {answeredState.isCorrect === true
+              ? "Chính xác! Bạn được cộng " + (attempt?.scorePerQuestion || 10) + " điểm."
+              : answeredState.isCorrect === false
+              ? "Chưa chính xác! Xem giải thích ở kết quả cuối bài."
+              : "Đã ghi nhận phương án. Tiếp tục câu tiếp theo."}
           </span>
         </div>
       )}

@@ -87,3 +87,31 @@ test('FE Quiz: Related destination navigation mapping', () => {
   assert.equal(getDestinationPath({ relatedPlaceId: 'c5e658bd' }), '/place/c5e658bd');
   assert.equal(getDestinationPath({}), null);
 });
+
+test('FE Quiz: in_progress attempt grading masking and safe presentation logic', () => {
+  const formatHistoryAttempt = (att) => {
+    const isCompleted = att.status === 'completed';
+    return {
+      scoreDisplay: isCompleted ? `${att.score ?? 0} đ` : '--',
+      statusDisplay: isCompleted ? 'Đã nộp' : (att.status === 'in_progress' ? 'Đang thi' : att.status),
+      detailDisplay: isCompleted
+        ? `${att.total_questions} câu • Đúng ${att.correct_count ?? 0} • Sai ${att.incorrect_count ?? 0}`
+        : `${att.total_questions} câu • Đang làm dở`,
+      destination: att.status === 'in_progress' ? `/quiz/play?attemptId=${att.id}` : `/quiz/result/${att.id}`,
+    };
+  };
+
+  const inProg = { id: 'att-1', status: 'in_progress', total_questions: 5, score: null, correct_count: null, incorrect_count: null };
+  const inProgResult = formatHistoryAttempt(inProg);
+  assert.equal(inProgResult.scoreDisplay, '--');
+  assert.equal(inProgResult.statusDisplay, 'Đang thi');
+  assert.equal(inProgResult.detailDisplay, '5 câu • Đang làm dở');
+  assert.equal(inProgResult.destination, '/quiz/play?attemptId=att-1');
+
+  const comp = { id: 'att-2', status: 'completed', total_questions: 5, score: 40, correct_count: 4, incorrect_count: 1 };
+  const compResult = formatHistoryAttempt(comp);
+  assert.equal(compResult.scoreDisplay, '40 đ');
+  assert.equal(compResult.statusDisplay, 'Đã nộp');
+  assert.equal(compResult.detailDisplay, '5 câu • Đúng 4 • Sai 1');
+  assert.equal(compResult.destination, '/quiz/result/att-2');
+});

@@ -270,7 +270,9 @@ const QuizHomePage: React.FC = () => {
             <div>
               <div style={{ fontSize: 11, opacity: 0.85 }}>Trạng thái của bạn:</div>
               <strong style={{ fontSize: 14 }}>
-                Đã thi xong ({daily.score !== null ? daily.score + " điểm" : "Đã hoàn thành"})
+                {daily.attemptStatus === "in_progress"
+                  ? "Đang làm bài..."
+                  : `Đã thi xong (${daily.score !== null ? daily.score + " điểm" : "Đã hoàn thành"})`}
               </strong>
             </div>
             {daily.attemptId && (
@@ -286,9 +288,15 @@ const QuizHomePage: React.FC = () => {
                   border: "none",
                   cursor: "pointer",
                 }}
-                onClick={() => navigate("/quiz/result/" + encodeURIComponent(daily.attemptId!))}
+                onClick={() => {
+                  if (daily.attemptStatus === "in_progress") {
+                    navigate("/quiz/play?attemptId=" + encodeURIComponent(daily.attemptId!));
+                  } else {
+                    navigate("/quiz/result/" + encodeURIComponent(daily.attemptId!));
+                  }
+                }}
               >
-                Xem kết quả
+                {daily.attemptStatus === "in_progress" ? "Làm tiếp" : "Xem kết quả"}
               </button>
             )}
           </div>

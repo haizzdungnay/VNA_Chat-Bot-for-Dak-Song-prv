@@ -251,20 +251,62 @@ test('Tier C: Live Worker + D1 Concurrency & Anti-Cheat HTTP Verification', asyn
   });
   assert.equal(leakFinRes.status, 403, 'Cross-user finalize must be rejected with 403');
 
-  // 9. Zero answer leakage during in_progress
+  // 9. Zero answer leakage and zero aggregate grading leakage during in_progress
   const activeAttRes = await fetch(`${LIVE_BASE_URL}/api/quiz/attempts/${attId2}`, {
     headers: { 'Authorization': 'Bearer ' + token1 },
   });
   assert.equal(activeAttRes.status, 200);
   const activeAtt = await activeAttRes.json();
   assert.equal(activeAtt.attempt.status, 'in_progress');
+  assert.equal(activeAtt.attempt.score, null, 'Attempt score must be null while in_progress');
+  assert.equal(activeAtt.attempt.correctCount, null, 'correctCount must be null while in_progress');
+  assert.equal(activeAtt.attempt.incorrectCount, null, 'incorrectCount must be null while in_progress');
+  assert.equal(activeAtt.attempt.percentage, null, 'percentage must be null while in_progress');
+
   for (const item of activeAtt.attempt.questions) {
     assert.equal(item.correctOptionId, undefined, 'Must not expose correctOptionId while in_progress');
     assert.equal(item.explanation, undefined, 'Must not expose explanation while in_progress');
+    assert.equal(item.isCorrect, undefined, 'Must not expose isCorrect while in_progress');
+    assert.equal(item.points, undefined, 'Must not expose points while in_progress');
     for (const opt of item.options) {
       assert.equal(opt.is_correct, undefined, 'Option must not expose is_correct while in_progress');
     }
   }
+
+  // Submit an answer on attId2
+  const att2Q1 = activeAtt.attempt.questions[0];
+  await fetch(`${LIVE_BASE_URL}/api/quiz/attempts/${attId2}/answers`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + token1,
+    },
+    body: JSON.stringify({ attemptQuestionId: att2Q1.id, selectedOptionId: att2Q1.options[0].id }),
+  });
+
+  // Re-verify attempt after submitting 1 answer: Still no grading leak!
+  const postAnsAttRes = await fetch(`${LIVE_BASE_URL}/api/quiz/attempts/${attId2}`, {
+    headers: { 'Authorization': 'Bearer ' + token1 },
+  });
+  assert.equal(postAnsAttRes.status, 200);
+  const postAnsAtt = await postAnsAttRes.json();
+  assert.equal(postAnsAtt.attempt.score, null, 'Score must remain null after answer submission');
+  assert.equal(postAnsAtt.attempt.correctCount, null);
+  assert.equal(postAnsAtt.attempt.percentage, null);
+
+  // Verify history route via HTTP has zero grading leak for in_progress items
+  const histRes = await fetch(`${LIVE_BASE_URL}/api/quiz/history?page=1&limit=20`, {
+    headers: { 'Authorization': 'Bearer ' + token1 },
+  });
+  assert.equal(histRes.status, 200);
+  const histData = await histRes.json();
+  const inProgHist = histData.history.find((h) => h.id === attId2);
+  assert.ok(inProgHist, 'attId2 must appear in history');
+  assert.equal(inProgHist.status, 'in_progress');
+  assert.equal(inProgHist.score, null, 'History score must be null for in_progress');
+  assert.equal(inProgHist.correctCount, null);
+  assert.equal(inProgHist.correct_count, null);
+  assert.equal(inProgHist.percentage, null);
 
   // 10. Direct simultaneous submitAnswer-versus-finish race condition test
   const startP3 = await fetch(`${LIVE_BASE_URL}/api/quiz/attempts`, {

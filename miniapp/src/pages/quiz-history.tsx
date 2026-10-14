@@ -85,11 +85,18 @@ const QuizHistoryPage: React.FC = () => {
           {history.map((att) => {
             const isDaily = att.attempt_type === "daily_challenge";
             const dateStr = att.started_at ? att.started_at.slice(0, 16).replace("T", " ") : "";
+            const isCompleted = att.status === "completed";
 
             return (
               <div
                 key={att.id}
-                onClick={() => navigate("/quiz/result/" + encodeURIComponent(att.id))}
+                onClick={() => {
+                  if (att.status === "in_progress") {
+                    navigate("/quiz/play?attemptId=" + encodeURIComponent(att.id));
+                  } else {
+                    navigate("/quiz/result/" + encodeURIComponent(att.id));
+                  }
+                }}
                 style={{
                   background: "var(--color-surface, #ffffff)",
                   borderRadius: 14,
@@ -136,22 +143,24 @@ const QuizHistoryPage: React.FC = () => {
                   </h3>
 
                   <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 4 }}>
-                    {att.total_questions} câu • Đúng {att.correct_count} • Sai {att.incorrect_count}
+                    {isCompleted
+                      ? `${att.total_questions} câu • Đúng ${att.correct_count ?? 0} • Sai ${att.incorrect_count ?? 0}`
+                      : `${att.total_questions} câu • Đang làm dở`}
                   </div>
                 </div>
 
                 <div style={{ textAlign: "right", flexShrink: 0 }}>
                   <div style={{ fontSize: 18, fontWeight: 800, color: "var(--color-primary)" }}>
-                    {att.score} đ
+                    {isCompleted ? `${att.score ?? 0} đ` : "--"}
                   </div>
                   <span
                     style={{
                       fontSize: 11,
                       fontWeight: 600,
-                      color: att.status === "completed" ? "#16a34a" : "#dc2626",
+                      color: isCompleted ? "#16a34a" : "#ca8a04",
                     }}
                   >
-                    {att.status === "completed" ? "Đã nộp" : att.status}
+                    {isCompleted ? "Đã nộp" : (att.status === "in_progress" ? "Đang thi" : att.status)}
                   </span>
                 </div>
               </div>

@@ -219,8 +219,8 @@ export class QuizService {
       hasAttempted,
       attemptStatus: existingAttempt?.status || null,
       attemptId: existingAttempt?.id || null,
-      score: existingAttempt?.score || null,
-      maxScore: existingAttempt?.max_score || null,
+      score: (existingAttempt?.status === "completed") ? existingAttempt.score : null,
+      maxScore: existingAttempt?.max_score || ((ch.question_count || 0) * (ch.score_per_question || 10)),
     };
   }
 
@@ -512,13 +512,13 @@ export class QuizService {
       answersMap.set(ans.attempt_question_id, ans);
     }
 
-    const isInProgress = attempt.status === "in_progress";
+    const isCompleted = attempt.status === "completed";
 
     const questions = (qRows.results || []).map((aq) => {
       const parsedOpts = JSON.parse(aq.options_json || "[]");
       const userAns = answersMap.get(aq.id);
 
-      if (isInProgress) {
+      if (!isCompleted) {
         return {
           id: aq.id,
           orderIndex: aq.order_index,
@@ -553,7 +553,7 @@ export class QuizService {
 
     const scorePerQ: number = (typeof attempt.score_per_question === "number" && Number.isSafeInteger(attempt.score_per_question) && attempt.score_per_question > 0) ? attempt.score_per_question : 10;
     const maxScore = attempt.max_score || (attempt.total_questions * scorePerQ);
-    const percentage = maxScore > 0 ? Math.round((attempt.score / maxScore) * 100) : 0;
+    const percentage = (isCompleted && maxScore > 0) ? Math.round((attempt.score / maxScore) * 100) : null;
 
     return {
       id: attempt.id,
@@ -564,10 +564,11 @@ export class QuizService {
       businessDate: attempt.business_date,
       totalQuestions: attempt.total_questions,
       scorePerQuestion: scorePerQ,
-      correctCount: attempt.correct_count,
-      incorrectCount: attempt.incorrect_count,
-      unansweredCount: attempt.unanswered_count,
-      score: attempt.score,
+      correctCount: isCompleted ? attempt.correct_count : null,
+      incorrectCount: isCompleted ? attempt.incorrect_count : null,
+      unansweredCount: isCompleted ? attempt.unanswered_count : null,
+      answeredCount: answersMap.size,
+      score: isCompleted ? attempt.score : null,
       maxScore,
       percentage,
       startedAt: attempt.started_at,
@@ -849,8 +850,55 @@ export class QuizService {
       .bind(userId, l, offset)
       .all<any>();
 
+    const history = (listRes.results || []).map((row: any) => {
+      const isCompleted = row.status === "completed";
+      const scorePerQ = (Number.isSafeInteger(row.score_per_question) && row.score_per_question > 0)
+        ? row.score_per_question
+        : 10;
+      const maxScore = row.max_score || (row.total_questions * scorePerQ);
+      const percentage = (isCompleted && maxScore > 0) ? Math.round((row.score / maxScore) * 100) : null;
+
+      return {
+        id: row.id,
+        attemptId: row.id,
+        attemptType: row.attempt_type,
+        attempt_type: row.attempt_type,
+        challengeId: row.challenge_id,
+        challenge_id: row.challenge_id,
+        collectionId: row.collection_id,
+        collection_id: row.collection_id,
+        challengeTitle: row.challenge_title || null,
+        challenge_title: row.challenge_title || null,
+        collectionTitle: row.collection_title || null,
+        collection_title: row.collection_title || null,
+        businessDate: row.business_date || null,
+        business_date: row.business_date || null,
+        totalQuestions: row.total_questions,
+        total_questions: row.total_questions,
+        scorePerQuestion: scorePerQ,
+        score_per_question: scorePerQ,
+        maxScore,
+        max_score: maxScore,
+        status: row.status,
+        startedAt: row.started_at,
+        started_at: row.started_at,
+        expiresAt: row.expires_at || null,
+        expires_at: row.expires_at || null,
+        completedAt: row.completed_at || null,
+        completed_at: row.completed_at || null,
+        score: isCompleted ? row.score : null,
+        percentage: isCompleted ? percentage : null,
+        correctCount: isCompleted ? row.correct_count : null,
+        correct_count: isCompleted ? row.correct_count : null,
+        incorrectCount: isCompleted ? row.incorrect_count : null,
+        incorrect_count: isCompleted ? row.incorrect_count : null,
+        unansweredCount: isCompleted ? row.unanswered_count : null,
+        unanswered_count: isCompleted ? row.unanswered_count : null,
+      };
+    });
+
     return {
-      history: listRes.results || [],
+      history,
       total: countRes?.total || 0,
       page: p,
       limit: l,

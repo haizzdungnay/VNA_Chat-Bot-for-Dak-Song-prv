@@ -153,7 +153,7 @@ Ngay thuc hien: 13/10/2026
 13. `security.test.mjs`: 7 pass
 14. `sync-adapter.test.mjs`: 6 pass
 15. `tourism-quiz.test.mjs`: 24 pass (Bao gom 6 scenario Phase 8.4.4 P2-QZ-07)
-16. `travel-planner.test.mjs`: 15 pass
+16. `travel-planner.test.mjs`: 14 pass
 17. `visitor-consent.test.mjs`: 3 pass
 *Tong cong Worker:* **149 tests (149 PASS, 0 FAIL, 0 SKIP)**.
 
