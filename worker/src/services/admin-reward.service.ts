@@ -420,7 +420,7 @@ export class AdminRewardService {
     const itemsRes = await this.env.DB.prepare(
       `SELECT w.*,
               CASE
-                WHEN w.status = 'issued' AND w.expires_at <= datetime('now') THEN 'expired'
+                WHEN w.status = 'issued' AND unixepoch(w.expires_at) <= unixepoch() THEN 'expired'
                 ELSE w.status
               END AS effective_status,
               u.email as user_email, u.display_name as user_name, c.title as campaign_title
@@ -467,7 +467,8 @@ export class AdminRewardService {
       throw err;
     }
 
-    if (new Date() >= new Date(voucher.expires_at) || voucher.status === "expired") {
+    const expMs = Date.parse(voucher.expires_at);
+    if (voucher.status === "expired" || (!isNaN(expMs) && expMs <= Date.now())) {
       const err = new Error("Mã ưu đãi đã hết hạn sử dụng");
       (err as any).statusCode = 400;
       throw err;
@@ -478,7 +479,7 @@ export class AdminRewardService {
       this.env.DB.prepare(
         `UPDATE reward_wallet_items
          SET status = 'redeemed', redeemed_at = datetime('now'), updated_at = datetime('now')
-         WHERE id = ? AND status = 'issued' AND datetime('now') < expires_at`
+         WHERE id = ? AND status = 'issued' AND unixepoch() < unixepoch(expires_at)`
       ).bind(voucher.id),
       this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"),
       this.env.DB.prepare(

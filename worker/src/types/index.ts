@@ -118,6 +118,13 @@ export interface AdminAIProfileRow {
   updated_at: string;
 }
 
+export interface RewardUserCampaignSpinsRow {
+  campaign_id: string;
+  user_id: string;
+  completed_spins: number;
+  updated_at: string;
+}
+
 export interface AdminAIProfilePublic {
   id: string;
   name: string;

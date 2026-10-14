@@ -31,7 +31,7 @@ He thong la monorepo npm workspaces gom 3 du an doc lap:
 
 ## 3. CO SO DU LIEU D1 LOCAL & MIGRATION FREEZE
 Toan bo database D1 local nam tai `worker/.wrangler/state/v3/d1`.
-**Cac migration tu 0001 den 0014 da dong bang (FROZEN), tuyet doi khong sua doi file cu:**
+**Cac migration tu 0001 den 0015 da dong bang (FROZEN), tuyet doi khong sua doi file cu:**
 - `0001_initial.sql`: Bang `categories` va `places`.
 - `0002_seed.sql`: 19 dia danh Dak Song (15 verified + 4 VR360 3D).
 - `0003_schema_update.sql`: Bang `articles` va 42 bai viet cam nang van hoa.
@@ -46,7 +46,8 @@ Toan bo database D1 local nam tai `worker/.wrangler/state/v3/d1`.
 - `0012_quiz_scoring_and_schedule.sql` (Phase 8.4.1): Cot `score_per_question` trong `quiz_attempts` phuc vu snapshot diem so bat bien.
 - `0013_rewards_wallet_spin.sql` (Phase 8.5): He thong phan thuong, vi voucher va vong quay may man.
 - `0014_rewards_integrity_hardening.sql` (Phase 8.5.1): Bang `reward_gift_claims`, cot `total_spins_count` CAS guard.
-*Quy tac additive migration:* Neu cac phase sau can thay doi schema, bat dau tu `0015_*.sql`. Khong sua file tu 0001-0014.
+- `0015_rewards_time_quota_hardening.sql` (Phase 8.5.2): Bang `reward_user_campaign_spins` CAS atomic per-user limit.
+*Quy tac additive migration:* Neu cac phase sau can thay doi schema, bat dau tu `0016_*.sql`. Khong sua file tu 0001-0015.
 
 ---
 

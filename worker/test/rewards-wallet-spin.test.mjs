@@ -737,6 +737,211 @@ test('P2-RWD-06: Voucher state machine rejects invalid transitions (redeemed -> 
     /hết hạn/
   );
 });
+
+// -----------------------------------------------------------------------------
+// 17. P1-RWD-07: TIME CONSISTENCY & IN-FLIGHT EXPIRY/PAUSE CAS GUARDS
+// -----------------------------------------------------------------------------
+test('P1-RWD-07: unixepoch instant comparison correctly identifies expired ISO timestamps and guards in-flight expiry', async () => {
+  const env = createRewardTestEnv();
+  const service = new RewardService(env);
+  const adminService = new AdminRewardService(env);
+
+  // 1. Insert voucher with past ISO UTC string that naive text comparison would misjudge
+  // '2020-01-01T12:00:00.000Z' is in the past.
+  const expiredVoucherId = 'v-iso-expired-01';
+  await env.DB.prepare(`
+    INSERT INTO reward_wallet_items (id, user_id, voucher_code, title, discount_display, category, terms_conditions_snapshot, status, source_type, issued_at, expires_at)
+    VALUES (?, 'user-alice', 'V-ISO-EXP', 'Test ISO Exp', '10%', 'all', '{}', 'issued', 'lucky_spin', '2019-12-01T00:00:00.000Z', '2020-01-01T12:00:00.000Z')
+  `).bind(expiredVoucherId).run();
+
+  // Admin cannot redeem it
+  await assert.rejects(
+    adminService.redeemVoucher('admin@vna.vn', expiredVoucherId),
+    /hết hạn/
+  );
+
+  // Effective status in wallet inquiry must be 'expired'
+  const wallet = await service.getUserWallet('user-alice');
+  const found = wallet.items.find((item) => item.id === expiredVoucherId);
+  assert.ok(found);
+  assert.equal(found.effective_status, 'expired');
+
+  // 2. In-flight entitlement expiry CAS guard:
+  // First claim and consume Alice's daily free turn so no auto-grant can occur
+  await service.claimDailySpin('user-alice', 'cmp-dak-song-2026');
+  await service.executeSpin('user-alice', { idempotencyKey: 'idem-consume-daily-01' });
+
+  // Grant entitlement with expiry in the past
+  const pastEntId = 'ent-past-iso';
+  await env.DB.prepare(`
+    INSERT INTO reward_entitlements (id, user_id, campaign_id, grant_type, total_granted, consumed_count, expires_at, created_at, updated_at)
+    VALUES (?, 'user-alice', 'cmp-dak-song-2026', 'admin_grant', 1, 0, '2020-01-01T00:00:00.000Z', datetime('now'), datetime('now'))
+  `).bind(pastEntId).run();
+
+  // executeSpin must reject because entitlement is expired according to unixepoch
+  await assert.rejects(
+    service.executeSpin('user-alice', { idempotencyKey: 'idem-past-ent-01' }),
+    /không còn lượt quay/
+  );
+
+  // 3. In-flight campaign pause guard:
+  // If campaign is paused right as commit happens, batch CAS guard rejects and rolls back
+  const camp = await adminService.createCampaign({ code: 'CAMP_PAUSE_TEST', title: 'Pause Test' });
+  await adminService.setCampaignStatus(camp.id, 'published');
+  const wheel = await adminService.createWheel({ campaignId: camp.id, title: 'Wheel Pause' });
+  await adminService.setWheelSegments(wheel.id, [
+    { label: 'No win', segmentType: 'no_win', weight: 50 },
+    { label: 'Gift', segmentType: 'gift_item', weight: 50 },
+  ]);
+  await adminService.toggleWheelStatus(wheel.id, 'active');
+
+  // Grant turn to alice
+  await env.DB.prepare(`
+    INSERT INTO reward_entitlements (id, user_id, campaign_id, grant_type, total_granted, consumed_count, expires_at, created_at, updated_at)
+    VALUES ('ent-pause-test', 'user-alice', ?, 'admin_grant', 1, 0, datetime('now', '+1 day'), datetime('now'), datetime('now'))
+  `).bind(camp.id).run();
+
+  // Admin pauses campaign
+  await adminService.setCampaignStatus(camp.id, 'paused');
+
+  // Spin must fail with 400 because campaign is paused
+  await assert.rejects(
+    service.executeSpin('user-alice', { wheelId: wheel.id, campaignId: camp.id, idempotencyKey: 'idem-pause-race-01' }),
+    /tạm dừng/
+  );
+
+  // Entitlement was NOT consumed
+  const entCheck = await env.DB.prepare("SELECT consumed_count FROM reward_entitlements WHERE id = 'ent-pause-test'").first();
+  assert.equal(entCheck.consumed_count, 0);
+});
+
+// -----------------------------------------------------------------------------
+// 18. P1-RWD-08: ATOMIC PER-USER LIMIT WITH 2 SEPARATELY GRANTED ENTITLEMENTS
+// -----------------------------------------------------------------------------
+test('P1-RWD-08: Concurrent executeSpin with 2 distinct entitlements under per_user_limit=1 commits exactly once', async () => {
+  const env = createRewardTestEnv();
+  const service = new RewardService(env);
+  const adminService = new AdminRewardService(env);
+
+  // 1. Create campaign with per_user_limit = 1, total_quota = 100
+  const camp = await adminService.createCampaign({
+    code: 'CAMP_CONCURRENT_P1_08',
+    title: 'Chiến dịch test concurrent per-user limit',
+    totalQuota: 100,
+    perUserLimit: 1,
+  });
+  await adminService.setCampaignStatus(camp.id, 'published');
+
+  const wheel = await adminService.createWheel({ campaignId: camp.id, title: 'Vòng quay Concurrent' });
+  await adminService.setWheelSegments(wheel.id, [
+    { label: 'May mắn lần sau', segmentType: 'no_win', weight: 100 },
+    { label: 'Quà lưu niệm', segmentType: 'gift_item', weight: 50 },
+  ]);
+  await adminService.toggleWheelStatus(wheel.id, 'active');
+
+  // 2. Grant User Alice TWO separate, independent, unexpired entitlements
+  const entId1 = 'ent-concurrent-01';
+  const entId2 = 'ent-concurrent-02';
+  await env.DB.prepare(`
+    INSERT INTO reward_entitlements (id, user_id, campaign_id, grant_type, source_event_key, total_granted, consumed_count, expires_at, created_at, updated_at)
+    VALUES (?, 'user-alice', ?, 'free_daily', 'daily-ev-01', 1, 0, datetime('now', '+1 day'), datetime('now'), datetime('now'))
+  `).bind(entId1, camp.id).run();
+
+  await env.DB.prepare(`
+    INSERT INTO reward_entitlements (id, user_id, campaign_id, grant_type, source_event_key, total_granted, consumed_count, expires_at, created_at, updated_at)
+    VALUES (?, 'user-alice', ?, 'quiz_completed', 'quiz-ev-01', 1, 0, datetime('now', '+1 day'), datetime('now'), datetime('now'))
+  `).bind(entId2, camp.id).run();
+
+  // 3. Launch TWO concurrent executeSpin requests with 2 distinct idempotency keys
+  const [spinRes1, spinRes2] = await Promise.allSettled([
+    service.executeSpin('user-alice', { wheelId: wheel.id, campaignId: camp.id, idempotencyKey: 'idem-race-req-1' }),
+    service.executeSpin('user-alice', { wheelId: wheel.id, campaignId: camp.id, idempotencyKey: 'idem-race-req-2' }),
+  ]);
+
+  // Assert: Exactly ONE fulfilled, and ONE rejected!
+  const fulfilled = [spinRes1, spinRes2].filter(r => r.status === 'fulfilled');
+  const rejected = [spinRes1, spinRes2].filter(r => r.status === 'rejected');
+
+  assert.equal(fulfilled.length, 1, 'Exactly one concurrent request must succeed');
+  assert.equal(rejected.length, 1, 'Exactly one concurrent request must be rejected');
+
+  // 4. Verify authoritative DB counters:
+  // (a) reward_user_campaign_spins: completed_spins must be exactly 1
+  const userSpinsRow = await env.DB.prepare(
+    "SELECT completed_spins FROM reward_user_campaign_spins WHERE campaign_id = ? AND user_id = 'user-alice'"
+  ).bind(camp.id).first();
+  assert.equal(userSpinsRow.completed_spins, 1, 'Per-user completed_spins must be exactly 1');
+
+  // (b) reward_campaigns: total_spins_count must be exactly 1
+  const campRow = await env.DB.prepare("SELECT total_spins_count FROM reward_campaigns WHERE id = ?").bind(camp.id).first();
+  assert.equal(campRow.total_spins_count, 1, 'Campaign total_spins_count must be exactly 1');
+
+  // (c) reward_spin_attempts: completed rows count must be exactly 1
+  const attemptsCount = await env.DB.prepare(
+    "SELECT count(*) as c FROM reward_spin_attempts WHERE user_id = 'user-alice' AND status = 'completed'"
+  ).first();
+  assert.equal(attemptsCount.c, 1, 'Total completed spin attempts must be exactly 1');
+
+  // (d) Total consumed entitlements for Alice in this campaign must be exactly 1
+  const consumedTotal = await env.DB.prepare(
+    "SELECT sum(consumed_count) as s FROM reward_entitlements WHERE user_id = 'user-alice' AND campaign_id = ?"
+  ).bind(camp.id).first();
+  assert.equal(consumedTotal.s, 1, 'Exactly one entitlement turn must be consumed; the other remains intact');
+
+  // (e) Reconciliation check: counter matches authoritative spin attempts ledger
+  assert.equal(userSpinsRow.completed_spins, attemptsCount.c, 'Reconciliation invariant holds: counter == attempts ledger');
+});
+
+// -----------------------------------------------------------------------------
+// 19. P1-RWD-08: UNLIMITED TO FINITE LIMIT EDIT PRESERVES PRIOR USAGE
+// -----------------------------------------------------------------------------
+test('P1-RWD-08: Changing unlimited campaign (per_user_limit=0) to finite limit (1) immediately enforces prior usage', async () => {
+  const env = createRewardTestEnv();
+  const service = new RewardService(env);
+  const adminService = new AdminRewardService(env);
+
+  // 1. Create campaign with per_user_limit = 0 (unlimited)
+  const camp = await adminService.createCampaign({
+    code: 'CAMP_UNLIMITED_TO_FINITE',
+    title: 'Unlimited to finite test',
+    totalQuota: 0,
+    perUserLimit: 0,
+  });
+  await adminService.setCampaignStatus(camp.id, 'published');
+
+  const wheel = await adminService.createWheel({ campaignId: camp.id, title: 'Wheel Unlim' });
+  await adminService.setWheelSegments(wheel.id, [
+    { label: 'No win', segmentType: 'no_win', weight: 50 },
+    { label: 'Gift', segmentType: 'gift_item', weight: 50 },
+  ]);
+  await adminService.toggleWheelStatus(wheel.id, 'active');
+
+  // Grant 2 turns
+  await env.DB.prepare(`
+    INSERT INTO reward_entitlements (id, user_id, campaign_id, grant_type, total_granted, consumed_count, expires_at, created_at, updated_at)
+    VALUES ('ent-unlim-1', 'user-alice', ?, 'admin_grant', 2, 0, datetime('now', '+1 day'), datetime('now'), datetime('now'))
+  `).bind(camp.id).run();
+
+  // Alice spins once under unlimited
+  const spin1 = await service.executeSpin('user-alice', { wheelId: wheel.id, campaignId: camp.id, idempotencyKey: 'idem-unlim-spin-1' });
+  assert.equal(spin1.success, true);
+
+  // Verify counter was tracked: completed_spins = 1
+  const counter = await env.DB.prepare(
+    "SELECT completed_spins FROM reward_user_campaign_spins WHERE campaign_id = ? AND user_id = 'user-alice'"
+  ).bind(camp.id).first();
+  assert.equal(counter.completed_spins, 1, 'Counter must be updated even under per_user_limit=0');
+
+  // 2. Admin edits campaign to per_user_limit = 1
+  await adminService.updateCampaign(camp.id, { per_user_limit: 1 });
+
+  // 3. Alice attempts second spin -> blocked with 403 because counter (1) >= new limit (1)!
+  await assert.rejects(
+    service.executeSpin('user-alice', { wheelId: wheel.id, campaignId: camp.id, idempotencyKey: 'idem-unlim-spin-2' }),
+    /đạt giới hạn tối đa/
+  );
+});
+
 // -----------------------------------------------------------------------------
 // 10. HTTP ROUTER E2E: TOURIST & ADMIN FLOW
 // -----------------------------------------------------------------------------

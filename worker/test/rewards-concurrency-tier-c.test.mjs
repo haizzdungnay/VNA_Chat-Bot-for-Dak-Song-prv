@@ -125,8 +125,8 @@ test('Tier C: Live Worker + D1 Rewards, Lucky Spin & Voucher Wallet HTTP Verific
     },
     body: JSON.stringify({
       segments: [
-        { label: 'Trúng voucher độc bản', segmentType: 'voucher', voucherTemplateId: templateId, weight: 100, totalInventory: 1 },
-        { label: 'May mắn lần sau', segmentType: 'no_win', weight: 100 },
+        { label: 'Trúng voucher đảm bảo', segmentType: 'voucher', voucherTemplateId: templateId, weight: 100, totalInventory: 10 },
+        { label: 'May mắn lần sau', segmentType: 'no_win', weight: 0 },
       ],
     }),
   });
@@ -176,71 +176,55 @@ test('Tier C: Live Worker + D1 Rewards, Lucky Spin & Voucher Wallet HTTP Verific
   const resA = await spinA.json();
   const resB = await spinB.json();
   assert.equal(resA.spinAttemptId, resB.spinAttemptId, 'Concurrent same idempotency key must return exact same spin attempt');
+  assert.ok(resA.voucher, 'Deterministic setup guarantees voucher win');
+  const issuedVoucher = resA.voucher;
 
-  // 8. User 1 wallet check
+  // 8. P2-RWD-09: Unconditional User 1 wallet check (no if guards!)
   const wallet1Res = await fetch(`${LIVE_BASE_URL}/api/rewards/wallet`, {
     headers: { 'Authorization': 'Bearer ' + token1 },
   });
   assert.equal(wallet1Res.status, 200);
   const wallet1Data = await wallet1Res.json();
-  assert.ok(wallet1Data.items.length >= 0);
+  assert.equal(wallet1Data.items.length, 1, 'User 1 wallet must contain exactly 1 voucher');
+  const vId = wallet1Data.items[0].id;
+  assert.equal(wallet1Data.items[0].voucher_code, issuedVoucher.code);
 
-  // If User 1 won voucher on that spin:
-  let winningVoucher = resA.voucher;
-  if (!winningVoucher) {
-    // Give User 1 another spin to ensure voucher is issued
-    await fetch(`${LIVE_BASE_URL}/api/rewards/spins/claim-daily`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + token1,
-      },
-      body: JSON.stringify({ campaignId }),
-    });
-  }
+  // 9. P2-RWD-09: Unconditional Cross-user isolation test on wallet item
+  const crossRes = await fetch(`${LIVE_BASE_URL}/api/rewards/wallet/${vId}`, {
+    headers: { 'Authorization': 'Bearer ' + token2 },
+  });
+  assert.equal(crossRes.status, 403, 'User 2 must not view User 1 voucher');
 
-  // 9. Cross-user isolation test on wallet item
-  if (wallet1Data.items.length > 0) {
-    const vId = wallet1Data.items[0].id;
-    const crossRes = await fetch(`${LIVE_BASE_URL}/api/rewards/wallet/${vId}`, {
-      headers: { 'Authorization': 'Bearer ' + token2 },
-    });
-    assert.equal(crossRes.status, 403, 'User 2 must not view User 1 voucher');
-  }
-
-  // 10. Admin verifies / redeems a voucher
+  // 10. P2-RWD-09: Unconditional Admin verifies / redeems a voucher
   const adminWalletRes = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/wallet?campaignId=${campaignId}`, {
     headers: { 'cf-access-authenticated-user-email': 'admin@vna.vn' },
   });
   assert.equal(adminWalletRes.status, 200);
   const adminWalletData = await adminWalletRes.json();
+  assert.ok(adminWalletData.items.length >= 1);
+  const vToRedeem = adminWalletData.items.find((item) => item.id === vId) || adminWalletData.items[0];
+  const rdm1 = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/wallet/${vToRedeem.id}/redeem`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'cf-access-authenticated-user-email': 'admin@vna.vn',
+    },
+    body: JSON.stringify({ reason: 'Quét tại quầy Tier C' }),
+  });
+  assert.equal(rdm1.status, 200);
+  const rdmData1 = await rdm1.json();
+  assert.equal(rdmData1.voucher.status, 'redeemed');
 
-  if (adminWalletData.items.length > 0) {
-    const vToRedeem = adminWalletData.items[0];
-    // First redeem
-    const rdm1 = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/wallet/${vToRedeem.id}/redeem`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'cf-access-authenticated-user-email': 'admin@vna.vn',
-      },
-      body: JSON.stringify({ reason: 'Quét tại quầy Tier C' }),
-    });
-    assert.equal(rdm1.status, 200);
-    const rdmData1 = await rdm1.json();
-    assert.equal(rdmData1.voucher.status, 'redeemed');
-
-    // Second redeem attempt on same voucher -> 409 Conflict
-    const rdm2 = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/wallet/${vToRedeem.id}/redeem`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'cf-access-authenticated-user-email': 'admin@vna.vn',
-      },
-      body: JSON.stringify({ reason: 'Quét lại' }),
-    });
-    assert.equal(rdm2.status, 409, 'Double redemption must be rejected with 409 Conflict');
-  }
+  // Second redeem attempt on same voucher -> 409 Conflict
+  const rdm2 = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/wallet/${vToRedeem.id}/redeem`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'cf-access-authenticated-user-email': 'admin@vna.vn',
+    },
+    body: JSON.stringify({ reason: 'Quét lại' }),
+  });
+  assert.equal(rdm2.status, 409, 'Double redemption must be rejected with 409 Conflict');
 
   // 11. Admin analytics and CSV export
   const analyticsRes = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/analytics`, {
@@ -314,7 +298,7 @@ test('Tier C: Live Worker + D1 Rewards, Lucky Spin & Voucher Wallet HTTP Verific
     body: JSON.stringify({
       segments: [
         { label: 'Voucher Độc Nhất', segmentType: 'voucher', voucherTemplateId: raceTpl.id, weight: 100, totalInventory: 1 },
-        { label: 'May mắn lần sau', segmentType: 'no_win', weight: 50 },
+        { label: 'May mắn lần sau', segmentType: 'no_win', weight: 0 },
       ],
     }),
   });
@@ -359,14 +343,25 @@ test('Tier C: Live Worker + D1 Rewards, Lucky Spin & Voucher Wallet HTTP Verific
     }),
   ]);
 
-  assert.equal(raceSpin1.status, 200);
-  assert.equal(raceSpin2.status, 200);
-  const rData1 = await raceSpin1.json();
-  const rData2 = await raceSpin2.json();
+  // P2-RWD-09: Either (winner + 409 controlled loser) OR (winner + no_win safely downgraded)
+  const isControlledLoser = (raceSpin1.status === 200 && (raceSpin2.status === 409 || raceSpin2.status === 400)) ||
+                            (raceSpin2.status === 200 && (raceSpin1.status === 409 || raceSpin1.status === 400));
+  const isBoth200 = raceSpin1.status === 200 && raceSpin2.status === 200;
+  assert.ok(isControlledLoser || isBoth200, `Last-stock contention must either yield winner+loser error or winner+no_win, got: ${raceSpin1.status}, ${raceSpin2.status}`);
 
-  // Exactly ONE winner gets the voucher! The other gets no_win (zero negative stock!)
-  const voucherWinners = [rData1.voucher, rData2.voucher].filter(Boolean);
-  assert.equal(voucherWinners.length, 1, 'Exactly one user must win the 1-stock voucher');
+  const r1 = raceSpin1.status === 200 ? await raceSpin1.json() : null;
+  const r2 = raceSpin2.status === 200 ? await raceSpin2.json() : null;
+  const voucherWinners = [r1?.voucher, r2?.voucher].filter(Boolean);
+  assert.equal(voucherWinners.length, 1, 'Exactly one user must win the 1-stock voucher; zero overselling');
+  assert.ok(voucherWinners[0].code.startsWith('RACE-'));
+
+  // Database postcondition check: template issued_count is strictly 1 in D1
+  const checkTplRes = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/templates?campaignId=${raceCamp.id}`, {
+    headers: { 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+  });
+  const checkTpls = (await checkTplRes.json()).templates;
+  const tplInDb = checkTpls.find((t) => t.id === raceTpl.id);
+  assert.equal(tplInDb.issued_count, 1, 'Template issued_count in D1 must be exactly 1');
 
   // =========================================================================
   // 13. P1-RWD-02: Gift Item Claim Creation & Admin Fulfillment via HTTP
@@ -483,5 +478,107 @@ test('Tier C: Live Worker + D1 Rewards, Lucky Spin & Voucher Wallet HTTP Verific
     body: JSON.stringify({ campaignId: 'cmp-dak-song-2026', wheelId: giftWheel.id }),
   });
   assert.equal(payloadConflictRes.status, 409, 'Same key with different payload must be rejected with 409');
+
+  // =========================================================================
+  // 15. P1-RWD-08: Mandatory Concurrent Scenario: User with 2 unexpired entitlements under per_user_limit=1
+  // =========================================================================
+  const limitCampRes = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/campaigns`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({
+      code: 'CAMP_CONC_LIMIT_' + runTag,
+      title: 'Chiến dịch Test Per User Limit 1',
+      campaignType: 'lucky_spin',
+      totalQuota: 10,
+      perUserLimit: 1,
+      eligibilityRules: { allow_free_daily: true },
+    }),
+  });
+  const limitCamp = (await limitCampRes.json()).campaign;
+  await fetch(`${LIVE_BASE_URL}/api/admin/rewards/campaigns/${limitCamp.id}/status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({ status: 'published' }),
+  });
+
+  const limitWheelRes = await fetch(`${LIVE_BASE_URL}/api/admin/rewards/wheels`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({ campaignId: limitCamp.id, title: 'Vòng quay Per User Limit' }),
+  });
+  const limitWheel = (await limitWheelRes.json()).wheel;
+
+  await fetch(`${LIVE_BASE_URL}/api/admin/rewards/wheels/${limitWheel.id}/segments`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({
+      segments: [
+        { label: 'May mắn lần sau', segmentType: 'no_win', weight: 100 },
+        { label: 'Quà lưu niệm', segmentType: 'gift_item', weight: 50 },
+      ],
+    }),
+  });
+
+  await fetch(`${LIVE_BASE_URL}/api/admin/rewards/wheels/${limitWheel.id}/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'cf-access-authenticated-user-email': 'admin@vna.vn' },
+    body: JSON.stringify({ status: 'active' }),
+  });
+
+  // User 1 gets 1st entitlement via daily free claim
+  await fetch(`${LIVE_BASE_URL}/api/rewards/spins/claim-daily`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token1 },
+    body: JSON.stringify({ campaignId: limitCamp.id }),
+  });
+
+  // User 1 fires TWO concurrent HTTP spin requests with 2 distinct valid idempotency keys
+  const [limSpin1, limSpin2] = await Promise.all([
+    fetch(`${LIVE_BASE_URL}/api/rewards/spins`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'idem-lim-u1-a-' + runTag,
+        'Authorization': 'Bearer ' + token1,
+      },
+      body: JSON.stringify({ campaignId: limitCamp.id, wheelId: limitWheel.id }),
+    }),
+    fetch(`${LIVE_BASE_URL}/api/rewards/spins`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': 'idem-lim-u1-b-' + runTag,
+        'Authorization': 'Bearer ' + token1,
+      },
+      body: JSON.stringify({ campaignId: limitCamp.id, wheelId: limitWheel.id }),
+    }),
+  ]);
+
+  // One request must succeed (200), and one must fail (403 or 409 due to per_user_limit guard)
+  const limStatuses = [limSpin1.status, limSpin2.status].sort();
+  assert.ok(
+    limStatuses.includes(200),
+    'At least one spin must succeed with 200'
+  );
+  assert.ok(
+    limStatuses.includes(403) || limStatuses.includes(409) || limStatuses.includes(400),
+    `Concurrent spin exceeding per_user_limit must be rejected with 4xx, got statuses: ${limStatuses.join(', ')}`
+  );
+
+  // Idempotent replay of the winning key returns the EXACT same stored result!
+  const winKey = limSpin1.status === 200 ? 'idem-lim-u1-a-' + runTag : 'idem-lim-u1-b-' + runTag;
+  const replayRes = await fetch(`${LIVE_BASE_URL}/api/rewards/spins`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Idempotency-Key': winKey,
+      'Authorization': 'Bearer ' + token1,
+    },
+    body: JSON.stringify({ campaignId: limitCamp.id, wheelId: limitWheel.id }),
+  });
+  assert.equal(replayRes.status, 200);
+  const replayData = await replayRes.json();
+  const originalWinData = limSpin1.status === 200 ? await limSpin1.json() : await limSpin2.json();
+  assert.equal(replayData.spinAttemptId, originalWinData.spinAttemptId, 'Replay must return exact stored result');
 });
 

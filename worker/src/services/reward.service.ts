@@ -96,7 +96,7 @@ export class RewardService {
   async listPublicCampaigns(): Promise<RewardCampaignRow[]> {
     const res = await this.env.DB.prepare(
       `SELECT * FROM reward_campaigns
-       WHERE status = 'published' AND (end_at IS NULL OR end_at >= datetime('now'))
+       WHERE status = 'published' AND unixepoch(start_at) <= unixepoch() AND (end_at IS NULL OR unixepoch() < unixepoch(end_at))
        ORDER BY start_at DESC`
     ).all<RewardCampaignRow>();
     return res.results || [];
@@ -138,7 +138,7 @@ export class RewardService {
       wheel = await this.env.DB.prepare(
         `SELECT w.* FROM reward_spin_wheels w
          JOIN reward_campaigns c ON w.campaign_id = c.id
-         WHERE w.status = 'active' AND c.status = 'published'
+         WHERE w.status = 'active' AND c.status = 'published' AND unixepoch(c.start_at) <= unixepoch() AND (c.end_at IS NULL OR unixepoch() < unixepoch(c.end_at))
          ORDER BY w.created_at DESC`
       ).first<RewardSpinWheelRow>();
 
@@ -216,8 +216,10 @@ export class RewardService {
     }
 
     // P1-RWD-04: Campaign schedule window check
-    const nowUtc = new Date().toISOString();
-    if (campaign.start_at > nowUtc) {
+    const nowMs = Date.now();
+    const startMs = Date.parse(campaign.start_at);
+    const endMs = campaign.end_at ? Date.parse(campaign.end_at) : null;
+    if (!isNaN(startMs) && startMs > nowMs) {
       return {
         canSpin: false,
         availableTurns: 0,
@@ -227,7 +229,7 @@ export class RewardService {
         reason: "Chiến dịch chưa đến thời gian mở thưởng.",
       };
     }
-    if (campaign.end_at && campaign.end_at <= nowUtc) {
+    if (endMs !== null && !isNaN(endMs) && endMs <= nowMs) {
       return {
         canSpin: false,
         availableTurns: 0,
@@ -253,13 +255,10 @@ export class RewardService {
     // P1-RWD-04: Per-user limit check
     if (campaign.per_user_limit > 0) {
       const userSpins = await this.env.DB.prepare(
-        `SELECT count(*) as c
-         FROM reward_spin_attempts rsa
-         JOIN reward_spin_wheels rsw ON rsa.wheel_id = rsw.id
-         WHERE rsa.user_id = ? AND rsw.campaign_id = ? AND rsa.status = 'completed'`
-      ).bind(userId, campaign.id).first<{ c: number }>();
-
-      if (userSpins && userSpins.c >= campaign.per_user_limit) {
+        `SELECT completed_spins FROM reward_user_campaign_spins WHERE campaign_id = ? AND user_id = ?`
+      ).bind(campaign.id, userId).first<{ completed_spins: number }>();
+      const currentCount = userSpins?.completed_spins || 0;
+      if (currentCount >= campaign.per_user_limit) {
         return {
           canSpin: false,
           availableTurns: 0,
@@ -275,7 +274,7 @@ export class RewardService {
     const entRes = await this.env.DB.prepare(
       `SELECT COALESCE(SUM(total_granted - consumed_count), 0) as available_turns
        FROM reward_entitlements
-       WHERE user_id = ? AND campaign_id = ? AND (expires_at IS NULL OR expires_at >= datetime('now'))`
+       WHERE user_id = ? AND campaign_id = ? AND (expires_at IS NULL OR unixepoch() < unixepoch(expires_at))`
     ).bind(userId, campaign.id).first<{ available_turns: number }>();
 
     let availableTurns = entRes?.available_turns || 0;
@@ -537,13 +536,15 @@ export class RewardService {
     }
 
     // P1-RWD-04: Schedule Window Enforcement
-    const nowUtc = new Date().toISOString();
-    if (campaign.start_at > nowUtc) {
+    const nowMs = Date.now();
+    const startMs = Date.parse(campaign.start_at);
+    const endMs = campaign.end_at ? Date.parse(campaign.end_at) : null;
+    if (!isNaN(startMs) && startMs > nowMs) {
       const err = new Error("Chiến dịch chưa đến thời gian mở thưởng.");
       (err as any).statusCode = 400;
       throw err;
     }
-    if (campaign.end_at && campaign.end_at <= nowUtc) {
+    if (endMs !== null && !isNaN(endMs) && endMs <= nowMs) {
       const err = new Error("Chiến dịch ưu đãi đã kết thúc.");
       (err as any).statusCode = 400;
       throw err;
@@ -552,13 +553,11 @@ export class RewardService {
     // P1-RWD-04: Per-User Limit Enforcement
     if (campaign.per_user_limit > 0) {
       const userSpins = await this.env.DB.prepare(
-        `SELECT count(*) as c
-         FROM reward_spin_attempts rsa
-         JOIN reward_spin_wheels rsw ON rsa.wheel_id = rsw.id
-         WHERE rsa.user_id = ? AND rsw.campaign_id = ? AND rsa.status = 'completed'`
-      ).bind(userId, campaign.id).first<{ c: number }>();
+        `SELECT completed_spins FROM reward_user_campaign_spins WHERE campaign_id = ? AND user_id = ?`
+      ).bind(campaign.id, userId).first<{ completed_spins: number }>();
+      const currentCount = userSpins?.completed_spins || 0;
 
-      if (userSpins && userSpins.c >= campaign.per_user_limit) {
+      if (currentCount >= campaign.per_user_limit) {
         const err = new Error(`Bạn đã đạt giới hạn tối đa ${campaign.per_user_limit} lượt quay trong chiến dịch này.`);
         (err as any).statusCode = 403;
         throw err;
@@ -569,7 +568,7 @@ export class RewardService {
     let entitlement = await this.env.DB.prepare(
       `SELECT * FROM reward_entitlements
        WHERE user_id = ? AND campaign_id = ? AND consumed_count < total_granted
-         AND (expires_at IS NULL OR expires_at >= datetime('now'))
+         AND (expires_at IS NULL OR unixepoch() < unixepoch(expires_at))
        ORDER BY created_at ASC
        LIMIT 1`
     ).bind(userId, campaign.id).first<RewardEntitlementRow>();
@@ -626,18 +625,57 @@ export class RewardService {
     const spinAttemptId = "spin-" + crypto.randomUUID();
     const stmts: any[] = [];
 
-    // P1-RWD-04: Atomic Campaign Total Quota Guard
-    if (campaign.total_quota > 0) {
+    // P1-RWD-04 & G2: Atomic Campaign Active State, Schedule Window & Total Quota Guard
+    stmts.push(
+      this.env.DB.prepare(
+        `UPDATE reward_campaigns
+         SET total_spins_count = total_spins_count + 1, updated_at = datetime('now')
+         WHERE id = ?
+           AND status = 'published'
+           AND unixepoch(start_at) <= unixepoch()
+           AND (end_at IS NULL OR unixepoch() < unixepoch(end_at))
+           AND (total_quota = 0 OR total_spins_count < total_quota)`
+      ).bind(campaign.id)
+    );
+    stmts.push(this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"));
+    stmts.push(this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"));
+
+    // P1-RWD-08: Transactionally Enforce Per-User Campaign Limit
+    stmts.push(
+      this.env.DB.prepare(
+        `INSERT OR IGNORE INTO reward_user_campaign_spins (campaign_id, user_id, completed_spins, updated_at)
+         VALUES (?, ?, 0, datetime('now'))`
+      ).bind(campaign.id, userId)
+    );
+
+    if (campaign.per_user_limit > 0) {
       stmts.push(
         this.env.DB.prepare(
-          `UPDATE reward_campaigns
-           SET total_spins_count = total_spins_count + 1, updated_at = datetime('now')
-           WHERE id = ? AND total_spins_count < total_quota`
-        ).bind(campaign.id)
+          `UPDATE reward_user_campaign_spins
+           SET completed_spins = completed_spins + 1, updated_at = datetime('now')
+           WHERE campaign_id = ? AND user_id = ? AND completed_spins < ?`
+        ).bind(campaign.id, userId, campaign.per_user_limit)
       );
       stmts.push(this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"));
       stmts.push(this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"));
+    } else {
+      stmts.push(
+        this.env.DB.prepare(
+          `UPDATE reward_user_campaign_spins
+           SET completed_spins = completed_spins + 1, updated_at = datetime('now')
+           WHERE campaign_id = ? AND user_id = ?`
+        ).bind(campaign.id, userId)
+      );
     }
+
+    // Guard wheel active state
+    stmts.push(
+      this.env.DB.prepare(
+        `UPDATE reward_spin_wheels SET updated_at = datetime('now') WHERE id = ? AND status = 'active'`
+      ).bind(wheel.id)
+    );
+    stmts.push(this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"));
+    stmts.push(this.env.DB.prepare("DELETE FROM optimistic_lock_guard WHERE guard_id = 1"));
 
     // If auto-granting daily entitlement, insert it first in the batch
     if (autoGrantedDaily && newDailyEntId) {
@@ -656,7 +694,7 @@ export class RewardService {
       this.env.DB.prepare(
         `UPDATE reward_entitlements
          SET consumed_count = consumed_count + 1, updated_at = datetime('now')
-         WHERE id = ? AND consumed_count < total_granted`
+         WHERE id = ? AND consumed_count < total_granted AND (expires_at IS NULL OR unixepoch() < unixepoch(expires_at))`
       ).bind(entIdToConsume)
     );
     stmts.push(this.env.DB.prepare("INSERT INTO optimistic_lock_guard (guard_id) VALUES (changes())"));
@@ -891,9 +929,9 @@ export class RewardService {
 
     if (statusFilter && ["issued", "redeemed", "expired", "revoked"].includes(statusFilter)) {
       if (statusFilter === "expired") {
-        whereClause += " AND (status = 'expired' OR (status = 'issued' AND expires_at <= datetime('now')))";
+        whereClause += " AND (status = 'expired' OR (status = 'issued' AND unixepoch(expires_at) <= unixepoch()))";
       } else if (statusFilter === "issued") {
-        whereClause += " AND status = 'issued' AND expires_at > datetime('now')";
+        whereClause += " AND status = 'issued' AND unixepoch() < unixepoch(expires_at)";
       } else {
         whereClause += " AND status = ?";
         params.push(statusFilter);
@@ -907,7 +945,7 @@ export class RewardService {
     const itemsRes = await this.env.DB.prepare(
       `SELECT w.*,
               CASE
-                WHEN w.status = 'issued' AND w.expires_at <= datetime('now') THEN 'expired'
+                WHEN w.status = 'issued' AND unixepoch(w.expires_at) <= unixepoch() THEN 'expired'
                 ELSE w.status
               END AS effective_status,
               c.title as campaign_title
@@ -930,7 +968,7 @@ export class RewardService {
     const item = await this.env.DB.prepare(
       `SELECT w.*,
               CASE
-                WHEN w.status = 'issued' AND w.expires_at <= datetime('now') THEN 'expired'
+                WHEN w.status = 'issued' AND unixepoch(w.expires_at) <= unixepoch() THEN 'expired'
                 ELSE w.status
               END AS effective_status,
               c.title as campaign_title
