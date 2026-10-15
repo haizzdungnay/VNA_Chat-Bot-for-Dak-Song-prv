@@ -27,6 +27,8 @@ export interface Env {
   EMAIL_API_KEY?: string;
   EMAIL_FROM?: string;
   GMAIL_WEBHOOK_URL?: string;
+  GMAIL_USER?: string;
+  GMAIL_APP_PASSWORD?: string;
 }
 
 export interface Category {
