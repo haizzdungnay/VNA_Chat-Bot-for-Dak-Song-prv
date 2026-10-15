@@ -45,7 +45,7 @@ const QuizResultPage: React.FC = () => {
   const isDaily = attempt.attemptType === "daily_challenge";
 
   return (
-    <div style={{ padding: "14px 16px 36px 16px", display: "flex", flexDirection: "column", gap: 18 }}>
+    <div style={{ padding: "14px 16px 90px 16px", display: "flex", flexDirection: "column", gap: 18 }}>
       {/* 1. Header Banner */}
       <section
         style={{
@@ -264,28 +264,47 @@ const QuizResultPage: React.FC = () => {
         {attempt.status === "completed" && (attempt.score || 0) >= 10 && (
           <div
             style={{
-              backgroundColor: "#fef3c7",
-              border: "1px solid #fde68a",
+              backgroundColor: "var(--color-ochre-bg, #fef3c7)",
+              border: "1px solid var(--color-ochre, #f59e0b)",
               borderRadius: 14,
-              padding: "12px 14px",
+              padding: "14px 16px",
               display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 10,
+              flexDirection: "column",
+              gap: 12,
             }}
           >
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#b45309" }}>
-                🎁 Bạn đủ điều kiện nhận quà tặng!
-              </div>
-              <div style={{ fontSize: 11, color: "#92400e", marginTop: 2 }}>
-                Đạt điểm cao trong bài thi Quiz được tặng lượt quay may mắn
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 24, color: "#d97706", flexShrink: 0, marginTop: 1 }}>
+                featured_seasonal_and_gifts
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#b45309" }}>
+                  Bạn đủ điều kiện nhận quà tặng!
+                </div>
+                <div style={{ fontSize: 12, color: "#92400e", marginTop: 4, lineHeight: 1.45 }}>
+                  Đạt điểm cao trong bài thi Quiz được tặng lượt quay may mắn
+                </div>
               </div>
             </div>
+
             <button
               type="button"
               className="eco-btn-primary"
-              style={{ padding: "8px 12px", fontSize: 12, height: "auto", flexShrink: 0 }}
+              style={{
+                width: "100%",
+                height: 40,
+                fontSize: 13,
+                fontWeight: 700,
+                backgroundColor: "#d97706",
+                color: "#ffffff",
+                borderRadius: 10,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                border: "none",
+              }}
               onClick={async () => {
                 try {
                   await api.claimQuizReward(attempt.id);
@@ -293,7 +312,10 @@ const QuizResultPage: React.FC = () => {
                 navigate("/spin");
               }}
             >
-              Thử vận may
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                casino
+              </span>
+              <span>Đổi lượt quay & Thử vận may</span>
             </button>
           </div>
         )}
