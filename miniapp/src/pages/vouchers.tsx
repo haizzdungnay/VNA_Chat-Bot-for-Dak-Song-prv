@@ -122,7 +122,7 @@ export const VouchersPage: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: "16px 16px 80px 16px", maxWidth: 640, margin: "0 auto" }}>
+    <div style={{ padding: "16px 16px 100px 16px", maxWidth: 640, margin: "0 auto" }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div>
@@ -268,15 +268,16 @@ export const VouchersPage: React.FC = () => {
                 style={{
                   backgroundColor: "var(--color-surface)",
                   border: "1px solid var(--color-border)",
-                  borderRadius: 14,
+                  borderRadius: 16,
                   overflow: "hidden",
-                  boxShadow: "var(--shadow-sm)",
+                  boxShadow: "0 4px 12px rgba(0, 0, 0, 0.05)",
                   display: "flex",
                   flexDirection: "column",
+                  transition: "transform 0.15s ease, box-shadow 0.15s ease",
                 }}
               >
                 {t.coverImageUrl && (
-                  <div style={{ height: 140, position: "relative" }}>
+                  <div style={{ height: 160, position: "relative", overflow: "hidden" }}>
                     <img
                       src={t.coverImageUrl}
                       alt={t.title}
@@ -285,67 +286,106 @@ export const VouchersPage: React.FC = () => {
                     <div
                       style={{
                         position: "absolute",
-                        bottom: 8,
-                        left: 8,
-                        backgroundColor: "rgba(0,0,0,0.6)",
-                        color: "#fff",
+                        top: 10,
+                        right: 10,
+                        backgroundColor: "rgba(0, 0, 0, 0.65)",
+                        color: "#ffffff",
                         fontSize: 11,
                         fontWeight: 700,
                         padding: "3px 8px",
-                        borderRadius: 4,
+                        borderRadius: 6,
+                        letterSpacing: "0.04em",
                       }}
                     >
-                      {t.durationDays} Ngày • {t.minTravelers}-{t.maxTravelers} khách
+                      {t.code}
+                    </div>
+                    <div
+                      style={{
+                        position: "absolute",
+                        bottom: 10,
+                        left: 10,
+                        backgroundColor: "rgba(0, 0, 0, 0.7)",
+                        color: "#ffffff",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        padding: "3px 10px",
+                        borderRadius: 6,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 14, color: "#a7f3d0" }}>
+                        schedule
+                      </span>
+                      <span>{t.durationDays} Ngày {Math.max(0, t.durationDays - 1)} Đêm</span>
+                      <span>•</span>
+                      <span>{t.minTravelers}–{t.maxTravelers} khách</span>
                     </div>
                   </div>
                 )}
 
-                <div style={{ padding: 14 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-primary)" }}>
-                    {t.code}
-                  </div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: "var(--color-text-primary)", marginTop: 2 }}>
+                <div style={{ padding: "14px 16px 16px 16px", display: "flex", flexDirection: "column", flex: 1 }}>
+                  <h3 style={{ fontSize: 16, fontWeight: 700, color: "var(--color-text-primary)", margin: "0 0 6px 0", lineHeight: 1.35 }}>
                     {t.title}
-                  </div>
-                  <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 6, lineHeight: 1.4 }}>
+                  </h3>
+                  <p style={{ fontSize: 13, color: "var(--color-text-secondary)", margin: 0, lineHeight: 1.45, flex: 1 }}>
                     {t.description}
-                  </div>
+                  </p>
 
                   <div
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
-                      marginTop: 12,
-                      paddingTop: 10,
+                      marginTop: 14,
+                      paddingTop: 12,
                       borderTop: "1px solid var(--color-border)",
+                      gap: 12,
                     }}
                   >
                     <div>
-                      <div style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>Giá cơ bản / khách</div>
-                      <div style={{ fontSize: 16, fontWeight: 800, color: "var(--color-primary)" }}>
-                        {formatVnd(t.basePrice)}
+                      <div style={{ fontSize: 11, color: "var(--color-text-secondary)", fontWeight: 500 }}>
+                        Giá trọn gói từ
+                      </div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 3, marginTop: 1 }}>
+                        <span style={{ fontSize: 18, fontWeight: 800, color: "var(--color-primary)", letterSpacing: "-0.01em" }}>
+                          {formatVnd(t.basePrice)}
+                        </span>
+                        <span style={{ fontSize: 12, color: "var(--color-text-secondary)", fontWeight: 500 }}>
+                          /khách
+                        </span>
                       </div>
                     </div>
 
                     <button
                       type="button"
                       onClick={() => handleBookTour(t)}
-                      className="eco-btn-primary"
                       style={{
-                        padding: "8px 16px",
+                        width: "auto",
+                        minWidth: 120,
+                        height: 38,
+                        padding: "0 18px",
                         fontSize: 13,
                         fontWeight: 700,
-                        borderRadius: 8,
-                        display: "flex",
+                        borderRadius: 10,
+                        backgroundColor: "var(--color-primary)",
+                        color: "#ffffff",
+                        border: "none",
+                        display: "inline-flex",
                         alignItems: "center",
+                        justifyContent: "center",
                         gap: 6,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                        boxShadow: "0 2px 6px rgba(19, 122, 62, 0.25)",
                       }}
                     >
-                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                        shopping_cart_checkout
+                      <span className="material-symbols-outlined" style={{ fontSize: 17 }}>
+                        confirmation_number
                       </span>
-                      Đặt tour ngay
+                      <span>Đặt tour ngay</span>
                     </button>
                   </div>
                 </div>
