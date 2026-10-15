@@ -51,9 +51,9 @@ const LuckySpinPage: React.FC = () => {
     loadData();
   }, [loadData]);
 
-  // Draw wheel on canvas
-  useEffect(() => {
-    const canvas = canvasRef.current;
+  // Draw wheel on canvas with fallback and theme colors
+  const drawWheel = useCallback((canvasNode?: HTMLCanvasElement | null) => {
+    const canvas = canvasNode || canvasRef.current;
     if (!canvas || segments.length === 0) return;
 
     const ctx = canvas.getContext("2d");
@@ -68,16 +68,37 @@ const LuckySpinPage: React.FC = () => {
     ctx.clearRect(0, 0, size, size);
 
     // Default colors palette if segment color not set
-    const defaultColors = ["#10b981", "#3b82f6", "#f59e0b", "#8b5cf6", "#ec4899", "#64748b", "#06b6d4", "#eab308"];
+    const defaultColors = [
+      "#10b981", // Emerald
+      "#3b82f6", // Blue
+      "#f59e0b", // Amber
+      "#8b5cf6", // Purple
+      "#ec4899", // Pink
+      "#06b6d4", // Cyan
+      "#f97316", // Orange
+      "#64748b", // Slate
+    ];
 
     segments.forEach((seg, i) => {
       const angle = i * arc;
       ctx.beginPath();
-      ctx.fillStyle = seg.color || defaultColors[i % defaultColors.length];
+      let fillColor = seg.color;
+      if (!fillColor) {
+        if (seg.segment_type === "no_win") {
+          fillColor = "#64748b";
+        } else {
+          fillColor = defaultColors[i % defaultColors.length];
+        }
+      }
+      ctx.fillStyle = fillColor;
       ctx.moveTo(center, center);
       ctx.arc(center, center, radius, angle, angle + arc);
       ctx.lineTo(center, center);
       ctx.fill();
+
+      // Divider line between segments
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
       ctx.stroke();
 
       // Text label
@@ -86,14 +107,22 @@ const LuckySpinPage: React.FC = () => {
       ctx.rotate(angle + arc / 2);
       ctx.textAlign = "right";
       ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 11px system-ui, -apple-system, sans-serif";
-      ctx.shadowColor = "rgba(0,0,0,0.5)";
-      ctx.shadowBlur = 3;
+      ctx.font = "bold 12px system-ui, -apple-system, sans-serif";
+      ctx.shadowColor = "rgba(0,0,0,0.6)";
+      ctx.shadowBlur = 4;
 
-      const label = seg.label.length > 14 ? seg.label.slice(0, 13) + "…" : seg.label;
-      ctx.fillText(label, radius - 18, 4);
+      const rawLabel = seg.label || "";
+      const label = rawLabel.length > 15 ? rawLabel.slice(0, 14) + "…" : rawLabel;
+      ctx.fillText(label, radius - 20, 4);
       ctx.restore();
     });
+
+    // Outer wheel border rim
+    ctx.beginPath();
+    ctx.arc(center, center, radius, 0, 2 * Math.PI);
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = "#ffffff";
+    ctx.stroke();
 
     // Center circle
     ctx.beginPath();
@@ -101,16 +130,23 @@ const LuckySpinPage: React.FC = () => {
     ctx.fillStyle = "#ffffff";
     ctx.fill();
     ctx.lineWidth = 4;
-    ctx.strokeStyle = "#f1f5f9";
+    ctx.strokeStyle = "#e2e8f0";
     ctx.stroke();
 
-    // Center star icon
+    // Center logo text
     ctx.fillStyle = "var(--color-primary, #137A3E)";
-    ctx.font = "bold 13px system-ui";
+    ctx.font = "bold 13px system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("VNA", center, center);
   }, [segments]);
+
+  // Ensure drawing triggers when loaded or when switching back to wheel tab
+  useEffect(() => {
+    if (canvasRef.current && segments.length > 0) {
+      drawWheel(canvasRef.current);
+    }
+  }, [segments, loading, activeTab, drawWheel]);
 
   const handleClaimDaily = async () => {
     try {
@@ -138,7 +174,11 @@ const LuckySpinPage: React.FC = () => {
 
     setSpinning(true);
     try {
-      const idemKey = "spin-req-" + crypto.randomUUID();
+      const randomSuffix =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : Date.now() + "-" + Math.random().toString(36).slice(2, 10);
+      const idemKey = "spin-req-" + randomSuffix;
       const result = await api.executeSpin({ idempotencyKey: idemKey });
       setSpinResult(result);
 
@@ -152,9 +192,12 @@ const LuckySpinPage: React.FC = () => {
       const segmentCenterDeg = (targetIndex * arcDeg) + (arcDeg / 2);
       const targetDeg = (270 - segmentCenterDeg + 360) % 360;
 
-      // Spin 5 full rotations (1800 deg) + target angle
-      const totalSpin = 1800 + targetDeg;
-      setRotation((prev) => prev + totalSpin);
+      // Accurate cumulative spin calculation (5 full rotations + exact delta to target)
+      setRotation((prev) => {
+        const currentMod = prev % 360;
+        const neededExtra = (targetDeg - currentMod + 360) % 360;
+        return prev + 1800 + neededExtra;
+      });
 
       // Wait for spin animation (4.5s)
       setTimeout(async () => {
@@ -339,14 +382,20 @@ const LuckySpinPage: React.FC = () => {
 
             {/* Rotating Wheel Canvas */}
             <canvas
-              ref={canvasRef}
+              ref={(node) => {
+                canvasRef.current = node;
+                if (node && segments.length > 0) {
+                  drawWheel(node);
+                }
+              }}
               width={300}
               height={300}
               style={{
                 borderRadius: "50%",
-                boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
                 transform: `rotate(${rotation}deg)`,
                 transition: spinning ? "transform 4.5s cubic-bezier(0.15, 0.9, 0.2, 1)" : "none",
+                display: "block",
               }}
             />
           </div>
