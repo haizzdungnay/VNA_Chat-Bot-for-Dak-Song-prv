@@ -34,6 +34,9 @@ export class EmailSenderService {
     if (provider === "resend" || provider === "postmark") {
       return Boolean(this.env.EMAIL_API_KEY?.trim());
     }
+    if (provider === "gmail") {
+      return Boolean(this.env.GMAIL_WEBHOOK_URL?.trim());
+    }
     return false;
   }
 
@@ -60,6 +63,47 @@ export class EmailSenderService {
         console.log(`[LOCAL DEV EMAIL] To: ${opts.to} | Message: ${opts.text}`);
       }
       return { success: true, messageId: "test-msg-" + Date.now() };
+    }
+
+    if (provider === "gmail") {
+      const webhookUrl = this.env.GMAIL_WEBHOOK_URL?.trim();
+      if (!webhookUrl) {
+        return { success: false, error: "Thiếu GMAIL_WEBHOOK_URL cho dịch vụ Gmail." };
+      }
+      const secret = this.env.EMAIL_API_KEY?.trim() || "";
+
+      try {
+        const res = await fetch(webhookUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            secret,
+            to: opts.to,
+            subject: opts.subject,
+            text: opts.text,
+            html: opts.html || opts.text,
+          }),
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          return {
+            success: false,
+            error: `Gmail Gateway error (${res.status}): ${errText.slice(0, 200)}`,
+          };
+        }
+
+        const data: any = await res.json().catch(() => ({}));
+        if (data && data.error) {
+          return { success: false, error: String(data.error) };
+        }
+
+        return { success: true, messageId: data?.id || ("gmail-" + Date.now()) };
+      } catch (err: any) {
+        return { success: false, error: `Lỗi kết nối tới Gmail Gateway: ${err.message || String(err)}` };
+      }
     }
 
     if (provider === "resend") {
@@ -144,4 +188,3 @@ export class EmailSenderService {
     };
   }
 }
-

@@ -26,6 +26,7 @@ export interface Env {
   EMAIL_PROVIDER?: string;
   EMAIL_API_KEY?: string;
   EMAIL_FROM?: string;
+  GMAIL_WEBHOOK_URL?: string;
 }
 
 export interface Category {
