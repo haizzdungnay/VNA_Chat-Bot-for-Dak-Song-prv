@@ -4,6 +4,7 @@ export const STORAGE_KEY_PROFILE = "vna.daksong.personalization.v1";
 export const STORAGE_KEY_ONBOARDING_SEEN = "vna.daksong.onboardingSeen.v1";
 export const STORAGE_KEY_THEME = "vna.daksong.theme.v1";
 export const STORAGE_KEY_CONSENT_TOKEN = "vna.daksong.consentToken.v1";
+export const STORAGE_KEY_AUTH_TOKEN = "vna.daksong.sessionToken.v1";
 
 export const CHAT_SUGGESTION_CHIPS = [
   {
@@ -47,6 +48,8 @@ export const AGE_GROUP_OPTIONS: { value: AgeGroup; label: string }[] = [
 export const NAV_ITEMS = [
   { key: "/", label: "Trang chủ", icon: "home", linkTo: "/" },
   { key: "/explore", label: "Khám phá", icon: "explore", linkTo: "/explore" },
+  { key: "/planner", label: "Lên lịch", icon: "calendar_month", linkTo: "/planner" },
+  { key: "/vouchers", label: "Ưu đãi", icon: "confirmation_number", linkTo: "/vouchers" },
   { key: "/chat", label: "Trợ lý AI", icon: "auto_awesome", linkTo: "/chat" },
 ];
 

@@ -10,11 +10,23 @@ interface HeaderProps {
 }
 
 const TAB_TITLES: Record<AdminTab, string> = {
-  overview: "Tổng quan hệ thống",
+  revenue: "Báo cáo doanh thu mô phỏng",
+  tours: "Quản lý danh mục Tour",
+  services: "Dịch vụ & Bảng giá du lịch",
+    bookings: "Quản lý đơn đặt tour & dịch vụ",
+  quiz_questions: "Ngân hàng câu hỏi Du lịch",
+  quiz_challenges: "Bộ đề & Thử thách hàng ngày",
+  quiz_analytics: "Kết quả & Thống kê Quiz",
+  reward_campaigns: "Chiến dịch Ưu đãi & Voucher (DEMO)",
+  reward_spins: "Vòng quay & Quản lý Giải thưởng",
+  reward_redemptions: "Ví Voucher & Xác nhận sử dụng",
+  reward_analytics: "Thống kê Phần thưởng & Vòng quay",
+  overview: "Tổng quan kỹ thuật hệ thống",
   visitors: "Hồ sơ người dùng đã đồng ý lưu",
   profiles: "Cấu hình AI & Profiles",
   logs: "Nhật ký hệ thống & Thống kê",
   settings: "Tình trạng hạ tầng & Thiết lập",
+  operations: "Vận hành & Nghiệm thu tích hợp",
 };
 
 export const Header: React.FC<HeaderProps> = ({
@@ -55,4 +67,3 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
-

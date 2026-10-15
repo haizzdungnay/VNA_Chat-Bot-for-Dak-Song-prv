@@ -15,3 +15,6 @@ AI_API_KEY=your_gemini_api_key_here
 
 # CORS config (mac dinh * trong dev)
 CORS_ALLOW_ORIGIN=*
+
+# Demo Mock Payment (Chi cho phep trong development, test, hoac staging)
+# MOCK_PAYMENT_ENABLED=true

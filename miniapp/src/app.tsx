@@ -6,11 +6,21 @@ import "zmp-ui/zaui.css";
 import "./css/app.css";
 
 import { AppProvider } from "./context/AppContext";
+import { AuthProvider } from "./context/AuthContext";
 import { Layout } from "./components/layout";
 import HomePage from "./pages/home";
 import ExplorePage from "./pages/explore";
 import PlaceDetailPage from "./pages/place-detail";
 import AIChatPage from "./pages/chat";
+import PlannerPage from "./pages/planner";
+import VouchersPage from "./pages/vouchers";
+import VoucherWalletPage from "./pages/voucher-wallet";
+import LuckySpinPage from "./pages/lucky-spin";
+import QuizHomePage from "./pages/quiz";
+import QuizPlayPage from "./pages/quiz-play";
+import QuizResultPage from "./pages/quiz-result";
+import QuizHistoryPage from "./pages/quiz-history";
+
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -57,6 +67,7 @@ const RootApp: React.FC = () => {
     <ErrorBoundary>
       <App>
         <AppProvider>
+          <AuthProvider>
           <ZMPRouter>
             <Layout>
               <AnimationRoutes>
@@ -64,9 +75,18 @@ const RootApp: React.FC = () => {
                 <Route path="/explore" element={<ExplorePage />} />
                 <Route path="/place/:id" element={<PlaceDetailPage />} />
                 <Route path="/chat" element={<AIChatPage />} />
+                <Route path="/planner" element={<PlannerPage />} />
+                                <Route path="/vouchers" element={<VouchersPage />} />
+                <Route path="/vouchers/wallet" element={<VoucherWalletPage />} />
+                <Route path="/spin" element={<LuckySpinPage />} />
+                <Route path="/quiz" element={<QuizHomePage />} />
+                <Route path="/quiz/play" element={<QuizPlayPage />} />
+                <Route path="/quiz/result/:id" element={<QuizResultPage />} />
+                <Route path="/quiz/history" element={<QuizHistoryPage />} />
               </AnimationRoutes>
             </Layout>
           </ZMPRouter>
+        </AuthProvider>
         </AppProvider>
       </App>
     </ErrorBoundary>

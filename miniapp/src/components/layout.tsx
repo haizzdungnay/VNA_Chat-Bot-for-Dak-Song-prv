@@ -3,15 +3,18 @@ import { useLocation, useNavigate } from "zmp-ui";
 import { NAV_ITEMS } from "../constants";
 import { useApp } from "../context/AppContext";
 import { WelcomePersonalizationSheet } from "./welcome-sheet";
+import { AuthModal } from "./auth-modal";
+import { useAuth } from "../context/AuthContext";
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { resolvedTheme, setTheme, openWelcomeSheet, toastMessage } = useApp();
+  const { isAuthenticated, user, openAuthModal } = useAuth();
 
   const currentPath = location.pathname;
   // Place detail is immersive, no bottom nav
-  const isPlaceDetail = currentPath.startsWith("/place/");
+  const isPlaceDetail = currentPath.startsWith("/place/") || currentPath.startsWith("/quiz/play");
   const showBottomNav = !isPlaceDetail;
 
   const toggleTheme = () => {
@@ -37,6 +40,30 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </div>
 
             <div className="eco-header-actions">
+                            {/* Quiz Challenges Button */}
+              <button
+                type="button"
+                className="eco-icon-btn"
+                onClick={() => navigate("/quiz")}
+                title="Thử thách Quiz Du lịch"
+                aria-label="Quiz Du lịch"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                  quiz
+                </span>
+              </button>
+              {/* AI Travel Planner Button */}
+              <button
+                type="button"
+                className="eco-icon-btn"
+                onClick={() => navigate("/planner")}
+                title="Lập lịch trình AI"
+                aria-label="Lịch trình AI"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                  calendar_month
+                </span>
+              </button>
               {/* Theme Toggle Button */}
               <button
                 type="button"
@@ -50,6 +77,32 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 </span>
               </button>
 
+              {/* Account / Authentication Button */}
+              <button
+                type="button"
+                className="eco-icon-btn"
+                onClick={openAuthModal}
+                title={isAuthenticated ? "Tài khoản (" + (user?.displayName || "Đã đăng nhập") + ")" : "Đăng nhập tài khoản"}
+                aria-label="Tài khoản"
+                style={{ position: "relative" }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                  {isAuthenticated ? "account_circle" : "login"}
+                </span>
+                {isAuthenticated && (
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: 6,
+                      right: 6,
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      backgroundColor: "var(--color-primary)",
+                    }}
+                  />
+                )}
+              </button>
               {/* Personalization / Profile Button */}
               <button
                 type="button"
@@ -117,6 +170,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
       {/* Welcome & Personalization Bottom Sheet */}
       <WelcomePersonalizationSheet />
+      {/* Account Modal */}
+      <AuthModal />
 
       {/* Global Feedback Toast */}
       {toastMessage && (

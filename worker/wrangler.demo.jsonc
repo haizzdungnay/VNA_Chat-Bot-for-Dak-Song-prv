@@ -22,7 +22,7 @@
     "AI_REASONING_EFFORT": "low",
     "AI_JSON_MODE": "false",
     "ALLOWED_AI_HOSTS": "*",
-    "ADMIN_DEV_MOCK_AUTH": "true",
+    "ENVIRONMENT": "staging",
     "ADMIN_AI_CONFIG_ENABLED": "true",
     "CORS_ALLOW_ORIGIN": "*"
   }

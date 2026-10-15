@@ -17,9 +17,22 @@ import { VisitorsPage } from "./pages/VisitorsPage";
 import { AIProfilesPage } from "./pages/AIProfilesPage";
 import { LogsPage } from "./pages/LogsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { RevenuePage } from "./pages/RevenuePage";
+import { ToursPage } from "./pages/ToursPage";
+import { ServicesPage } from "./pages/ServicesPage";
+import { BookingsPage } from "./pages/BookingsPage";
+import { QuizQuestionsPage } from "./pages/QuizQuestionsPage";
+import { QuizChallengesPage } from "./pages/QuizChallengesPage";
+import { QuizAnalyticsPage } from "./pages/QuizAnalyticsPage";
+import { RewardCampaignsPage } from "./pages/RewardCampaignsPage";
+import { RewardSpinsPage } from "./pages/RewardSpinsPage";
+import { RewardRedemptionsPage } from "./pages/RewardRedemptionsPage";
+import { RewardAnalyticsPage } from "./pages/RewardAnalyticsPage";
+import { OperationsPage } from "./pages/OperationsPage";
+
 
 export const App: React.FC = () => {
-  const [currentTab, setCurrentTab] = useState<AdminTab>("overview");
+  const [currentTab, setCurrentTab] = useState<AdminTab>("revenue");
   const [isLoading, setIsLoading] = useState(false);
   const [overview, setOverview] = useState<SystemOverview | null>(null);
   const [profiles, setProfiles] = useState<AdminAIProfile[]>([]);
@@ -177,6 +190,25 @@ export const App: React.FC = () => {
         />
 
         <main className="page-content">
+          {/* Phase 8.3 Business Modules */}
+          {currentTab === "revenue" && <RevenuePage onNotify={addToast} />}
+          {currentTab === "tours" && <ToursPage onNotify={addToast} />}
+          {currentTab === "services" && <ServicesPage onNotify={addToast} />}
+          {currentTab === "bookings" && <BookingsPage onNotify={addToast} />}
+
+          {/* Phase 8.4 Quiz & Interactive Modules */}
+          {currentTab === "quiz_questions" && <QuizQuestionsPage onNotify={addToast} />}
+          {currentTab === "quiz_challenges" && <QuizChallengesPage onNotify={addToast} />}
+          {currentTab === "quiz_analytics" && <QuizAnalyticsPage onNotify={addToast} />}
+
+          {/* Phase 8.5 Rewards & Lucky Spin Modules */}
+          {currentTab === "reward_campaigns" && <RewardCampaignsPage onNotify={addToast} />}
+          {currentTab === "reward_spins" && <RewardSpinsPage onNotify={addToast} />}
+          {currentTab === "reward_redemptions" && <RewardRedemptionsPage onNotify={addToast} />}
+          {currentTab === "reward_analytics" && <RewardAnalyticsPage onNotify={addToast} />}
+          {currentTab === "operations" && <OperationsPage onNotify={addToast} />}
+
+          {/* System & AI Modules */}
           {currentTab === "overview" && (
             <OverviewPage overview={overview} onNavigateTab={setCurrentTab} />
           )}
@@ -218,4 +250,3 @@ export const App: React.FC = () => {
 };
 
 export default App;
-

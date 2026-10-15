@@ -3,6 +3,51 @@ import type { ChatMessage, PersonalizationProfile } from "../types";
 export const MAX_MESSAGE_LENGTH = 500;
 export const MAX_HISTORY_MESSAGES = 8;
 
+export function normalizeVietnamese(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[đĐ]/g, "d");
+}
+
+export function detectItineraryIntent(text: string): { isItinerary: boolean; days?: number } {
+  const norm = normalizeVietnamese(text);
+  const isItinerary =
+    norm.includes("lich trinh") ||
+    norm.includes("ke hoach") ||
+    norm.includes("len lich") ||
+    norm.includes("dat lich") ||
+    norm.includes("lap lich") ||
+    norm.includes("tour") ||
+    norm.includes("chuyen di");
+
+  if (!isItinerary) return { isItinerary: false };
+
+  const dayMatch = text.match(/(\d+)\s*(?:ngày|ngay|day|n(?:\d+d)?)/i);
+  let days: number | undefined;
+  if (dayMatch) {
+    const parsed = parseInt(dayMatch[1], 10);
+    if (!isNaN(parsed) && parsed >= 1 && parsed <= 7) {
+      days = parsed;
+    }
+  }
+
+  return { isItinerary: true, days };
+}
+
+export function findMentionedPlaces<T extends { name: string }>(text: string, places: T[]): T[] {
+  const normText = normalizeVietnamese(text);
+  return places.filter((p) => {
+    const normName = normalizeVietnamese(p.name);
+    return normText.includes(normName);
+  });
+}
+
+export function shouldSuggestQuiz(count: number): boolean {
+  return count >= 4;
+}
+
 /**
  * Builds history array for POST /api/chat.
  * Rules:

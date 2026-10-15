@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "zmp-ui";
+import { useNavigate } from "react-router-dom";
 import { api } from "../services/api";
 import type { ChatMessage, Place } from "../types";
 import { CHAT_SUGGESTION_CHIPS } from "../constants";
@@ -8,12 +9,16 @@ import { useApp } from "../context/AppContext";
 import {
   buildChatHistory,
   buildOutgoingPayloadText,
+  detectItineraryIntent,
+  findMentionedPlaces,
+  shouldSuggestQuiz,
 } from "../utils/chat-helpers";
 
 export const AIChatPage: React.FC = () => {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const placeIdParam = searchParams.get("placeId");
-  const qParam = searchParams.get("q") || (searchParams.get("articleSlug") ? `Tìm hiểu về bài viết ${searchParams.get("articleSlug")}` : null);
+  const qParam = searchParams.get("q") || (searchParams.get("articleSlug") ? "Tìm hiểu về bài viết " + searchParams.get("articleSlug") : null);
 
   const {
     profile,
@@ -29,25 +34,45 @@ export const AIChatPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Stable failed turn state to avoid duplicate bubbles on retry
   const [failedTurn, setFailedTurn] = useState<{ id: string; text: string } | null>(null);
-
-  // Concurrency guard to prevent duplicate concurrent network requests
   const inFlightRef = useRef(false);
 
-  // Contextual place state
   const [contextualPlace, setContextualPlace] = useState<Place | null>(null);
   const autoSentPlaceIdRef = useRef<string | null>(null);
   const autoSentQRef = useRef<string | null>(null);
   const notifiedInvalidPlaceIdRef = useRef<string | null>(null);
 
-  // Cached map of placeId -> Place
+  const [allPlaces, setAllPlaces] = useState<Place[]>([]);
   const [placesCache, setPlacesCache] = useState<Record<string, Place>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const placeQueryCountsRef = useRef<Record<string, number>>({});
+  const suggestedQuizPlacesRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    let isMounted = true;
+    api
+      .getPlaces()
+      .then((list) => {
+        if (!isMounted) return;
+        setAllPlaces(list);
+        setPlacesCache((prev) => {
+          const next = { ...prev };
+          list.forEach((p) => {
+            next[p.id] = p;
+          });
+          return next;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const formatTime = () => {
     const d = new Date();
-    return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+    return d.getHours().toString().padStart(2, "0") + ":" + d.getMinutes().toString().padStart(2, "0");
   };
 
   const scrollToBottom = () => {
@@ -58,7 +83,6 @@ export const AIChatPage: React.FC = () => {
     scrollToBottom();
   }, [messages, loading]);
 
-  // Resolve PlaceCards metadata for placeIds
   const resolvePlaces = useCallback(async (placeIds: string[]) => {
     const missing = placeIds.filter((id) => !placesCache[id]);
     if (missing.length === 0) return;
@@ -88,7 +112,7 @@ export const AIChatPage: React.FC = () => {
     setError(null);
 
     const isRetry = Boolean(retryTurnId);
-    const activeMsgId = retryTurnId || `msg-${Date.now()}`;
+    const activeMsgId = retryTurnId || ("msg-" + Date.now());
 
     if (!isRetry) {
       const userMsg: ChatMessage = {
@@ -101,8 +125,53 @@ export const AIChatPage: React.FC = () => {
       setInputText("");
     }
 
+    const itineraryIntent = detectItineraryIntent(cleanText);
+    const itinerarySuggestion = itineraryIntent.isItinerary
+      ? {
+          days: itineraryIntent.days,
+          title: itineraryIntent.days
+            ? "Lên lịch trình " + itineraryIntent.days + " ngày tại Đắk Song"
+            : "Lên lịch trình du lịch Đắk Song",
+        }
+      : undefined;
+
+    const queriedPlaceIds = new Set<string>();
+    if (contextualPlace) {
+      queriedPlaceIds.add(contextualPlace.id);
+    }
+    const mentioned = findMentionedPlaces(cleanText, allPlaces);
+    mentioned.forEach((p) => queriedPlaceIds.add(p.id));
+
+    let initialQuizSuggestion: { placeId?: string; placeName?: string; queryCount?: number } | undefined;
+
+    for (const pid of queriedPlaceIds) {
+      const count = (placeQueryCountsRef.current[pid] || 0) + 1;
+      placeQueryCountsRef.current[pid] = count;
+      if (shouldSuggestQuiz(count) && !suggestedQuizPlacesRef.current.has(pid)) {
+        suggestedQuizPlacesRef.current.add(pid);
+        const placeObj = allPlaces.find((p) => p.id === pid) || contextualPlace;
+        initialQuizSuggestion = {
+          placeId: pid,
+          placeName: placeObj?.name || "địa danh Đắk Song",
+          queryCount: count,
+        };
+        break;
+      }
+    }
+
+    if (!initialQuizSuggestion && queriedPlaceIds.size > 0) {
+      const totalCount = (placeQueryCountsRef.current["_total_places"] || 0) + 1;
+      placeQueryCountsRef.current["_total_places"] = totalCount;
+      if (shouldSuggestQuiz(totalCount) && !suggestedQuizPlacesRef.current.has("_total_places")) {
+        suggestedQuizPlacesRef.current.add("_total_places");
+        initialQuizSuggestion = {
+          placeName: "các địa danh Đắk Song",
+          queryCount: totalCount,
+        };
+      }
+    }
+
     try {
-      // Build history strictly excluding the active/failed user turn
       const historyPayload = buildChatHistory(messages, activeMsgId);
       const outgoingMessage = buildOutgoingPayloadText(cleanText, profile);
 
@@ -111,12 +180,30 @@ export const AIChatPage: React.FC = () => {
         history: historyPayload,
       });
 
+      let finalQuizSuggestion = initialQuizSuggestion;
+      if (!finalQuizSuggestion && res.placeIds && res.placeIds.length > 0 && queriedPlaceIds.size === 0) {
+        const topPid = res.placeIds[0];
+        const count = (placeQueryCountsRef.current[topPid] || 0) + 1;
+        placeQueryCountsRef.current[topPid] = count;
+        if (shouldSuggestQuiz(count) && !suggestedQuizPlacesRef.current.has(topPid)) {
+          suggestedQuizPlacesRef.current.add(topPid);
+          const pObj = allPlaces.find((p) => p.id === topPid);
+          finalQuizSuggestion = {
+            placeId: topPid,
+            placeName: pObj?.name || "địa danh Đắk Song",
+            queryCount: count,
+          };
+        }
+      }
+
       const assistantMsg: ChatMessage = {
-        id: `asst-${Date.now()}`,
+        id: "asst-" + Date.now(),
         role: "assistant",
         content: res.answer,
         placeIds: res.placeIds || [],
         timestamp: formatTime(),
+        itinerarySuggestion,
+        quizSuggestion: finalQuizSuggestion,
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -147,7 +234,6 @@ export const AIChatPage: React.FC = () => {
     }
   };
 
-  // Handle article/question query param (?q=... or ?articleSlug=...) auto-send once
   useEffect(() => {
     if (qParam && autoSentQRef.current !== qParam) {
       autoSentQRef.current = qParam;
@@ -156,7 +242,6 @@ export const AIChatPage: React.FC = () => {
     }
   }, [qParam]);
 
-  // Handle contextual placeId param with P2 invalid place notice
   useEffect(() => {
     if (!placeIdParam) {
       setContextualPlace(null);
@@ -175,7 +260,7 @@ export const AIChatPage: React.FC = () => {
 
         if (autoSentPlaceIdRef.current !== placeIdParam) {
           autoSentPlaceIdRef.current = placeIdParam;
-          const prompt = `Hãy giới thiệu cho mình về ${placeData.name} và gợi ý những điều nên trải nghiệm tại đây.`;
+          const prompt = "Hãy giới thiệu cho mình về " + placeData.name + " và gợi ý những điều nên trải nghiệm tại đây.";
           executeSendMessage(prompt);
         }
       })
@@ -184,7 +269,6 @@ export const AIChatPage: React.FC = () => {
         setContextualPlace(null);
         setSearchParams({});
 
-        // Friendly notice for invalid/missing placeId, guarded against replay
         if (notifiedInvalidPlaceIdRef.current !== placeIdParam) {
           notifiedInvalidPlaceIdRef.current = placeIdParam;
           showToast(
@@ -411,6 +495,128 @@ export const AIChatPage: React.FC = () => {
                       <PlaceCard key={pid} place={place} compact />
                     ) : null;
                   })}
+                </div>
+              )}
+
+              {/* Itinerary Suggestion Card */}
+              {!isUser && msg.itinerarySuggestion && (
+                <div
+                  style={{
+                    width: "95%",
+                    maxWidth: 380,
+                    marginTop: 8,
+                    padding: "12px 14px",
+                    borderRadius: 14,
+                    backgroundColor: "var(--color-surface)",
+                    border: "1px solid var(--color-primary)",
+                    boxShadow: "0 2px 8px rgba(31, 93, 66, 0.08)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span className="material-symbols-outlined" style={{ color: "var(--color-primary)", fontSize: 20 }}>
+                      calendar_month
+                    </span>
+                    <span style={{ fontWeight: 600, fontSize: 13, color: "var(--color-text-primary)" }}>
+                      {msg.itinerarySuggestion.title || "Lên lịch trình thông minh"}
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.4 }}>
+                    Hệ thống AI Travel Planner sẵn sàng tạo lộ trình chi tiết từng ngày, từng giờ và gợi ý điểm đến tối ưu cho bạn.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const params = new URLSearchParams();
+                      if (msg.itinerarySuggestion?.days) {
+                        params.set("days", String(msg.itinerarySuggestion.days));
+                      }
+                      if (msg.placeIds && msg.placeIds.length > 0) {
+                        params.set("placeId", msg.placeIds[0]);
+                      }
+                      const queryStr = params.toString();
+                      navigate("/planner" + (queryStr ? "?" + queryStr : ""));
+                    }}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      padding: "8px 14px",
+                      borderRadius: "var(--radius-full)",
+                      backgroundColor: "var(--color-primary)",
+                      color: "#FFFFFF",
+                      border: "none",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      marginTop: 2,
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                      explore
+                    </span>
+                    <span>
+                      Lên lịch trình {msg.itinerarySuggestion.days ? msg.itinerarySuggestion.days + " ngày" : ""} ngay
+                    </span>
+                  </button>
+                </div>
+              )}
+
+              {/* Quiz Suggestion Card */}
+              {!isUser && msg.quizSuggestion && (
+                <div
+                  style={{
+                    width: "95%",
+                    maxWidth: 380,
+                    marginTop: 8,
+                    padding: "12px 14px",
+                    borderRadius: 14,
+                    backgroundColor: "var(--color-ochre-bg, #FFF9EB)",
+                    border: "1px solid var(--color-ochre, #D97706)",
+                    boxShadow: "0 2px 8px rgba(217, 119, 6, 0.1)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span className="material-symbols-outlined" style={{ color: "var(--color-ochre, #D97706)", fontSize: 20 }}>
+                      card_giftcard
+                    </span>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: "var(--color-text-primary)" }}>
+                      Thử thách Quiz nhận Voucher!
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 12, color: "var(--color-text-secondary)", lineHeight: 1.4 }}>
+                    Bạn rất quan tâm đến {msg.quizSuggestion.placeName}! Hãy thử sức với các câu hỏi Tourism Quiz để nhận voucher ưu đãi du lịch hấp dẫn ngay nhé.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => navigate("/quiz")}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                      padding: "8px 14px",
+                      borderRadius: "var(--radius-full)",
+                      backgroundColor: "var(--color-ochre, #D97706)",
+                      color: "#FFFFFF",
+                      border: "none",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      marginTop: 2,
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                      military_tech
+                    </span>
+                    <span>Làm Quiz nhận Voucher</span>
+                  </button>
                 </div>
               )}
             </div>

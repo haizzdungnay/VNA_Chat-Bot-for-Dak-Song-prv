@@ -19,6 +19,9 @@
     "AI_JSON_MODE": "false",
     "ALLOWED_AI_HOSTS": "*",
     "ADMIN_AI_CONFIG_ENABLED": "true",
-    "CORS_ALLOW_ORIGIN": "*"
+    "EMAIL_PROVIDER": "test",
+    "CORS_ALLOW_ORIGIN": "*",
+    "MOCK_PAYMENT_ENABLED": "true",
+    "ENVIRONMENT": "development"
   }
 }
