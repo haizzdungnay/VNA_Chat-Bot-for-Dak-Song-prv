@@ -87,6 +87,13 @@ export const PlannerPage: React.FC = () => {
       if (queryPlaceId && places.some((p) => p.id === queryPlaceId)) {
         setSelectedPlaceIds((prev) => (prev.includes(queryPlaceId) ? prev : [...prev, queryPlaceId]));
       }
+      const queryDays = params.get("days");
+      if (queryDays) {
+        const d = parseInt(queryDays, 10);
+        if (!isNaN(d) && d >= 1 && d <= 7) {
+          setDurationDays(d);
+        }
+      }
     }).catch(() => {});
   }, [location.search]);
 

@@ -1,10 +1,13 @@
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 
 // Directly import REAL production helpers (no test-only duplicated logic)
 import {
   buildChatHistory,
   buildOutgoingPayloadText,
+  detectItineraryIntent,
+  findMentionedPlaces,
+  shouldSuggestQuiz,
   MAX_MESSAGE_LENGTH,
   MAX_HISTORY_MESSAGES,
 } from "../src/utils/chat-helpers.ts";
@@ -405,4 +408,51 @@ test("14. Comprehensive XSS payloads sanitized across svg, iframe, javascript UR
     assert.ok(!cleaned.includes("onload"), `Must strip onload in: ${vector}`);
     assert.ok(!cleaned.includes("onclick"), `Must strip onclick in: ${vector}`);
   }
+});
+
+// 15. detectItineraryIntent identifies planning queries and extracts day counts accurately
+test("15. detectItineraryIntent identifies planning queries and extracts day counts accurately", () => {
+  const q1 = detectItineraryIntent("đặt lịch trình du lịch 2 ngày 3 đêm cho anh nha");
+  assert.equal(q1.isItinerary, true);
+  assert.equal(q1.days, 2);
+
+  const q2 = detectItineraryIntent("lên lịch trình khám phá Đắk Song 3 ngày");
+  assert.equal(q2.isItinerary, true);
+  assert.equal(q2.days, 3);
+
+  const q3 = detectItineraryIntent("kế hoạch du lịch tự túc");
+  assert.equal(q3.isItinerary, true);
+  assert.equal(q3.days, undefined);
+
+  const q4 = detectItineraryIntent("Thác Lưu Ly mở cửa lúc mấy giờ?");
+  assert.equal(q4.isItinerary, false);
+});
+
+// 16. shouldSuggestQuiz triggers strictly at threshold >= 4
+test("16. shouldSuggestQuiz triggers strictly at threshold >= 4", () => {
+  assert.equal(shouldSuggestQuiz(0), false);
+  assert.equal(shouldSuggestQuiz(1), false);
+  assert.equal(shouldSuggestQuiz(3), false);
+  assert.equal(shouldSuggestQuiz(4), true);
+  assert.equal(shouldSuggestQuiz(7), true);
+});
+
+// 17. findMentionedPlaces matches place names case-insensitively and accent-insensitively
+test("17. findMentionedPlaces matches place names case-insensitively and accent-insensitively", () => {
+  const places = [
+    { id: "p1", name: "Thác Lưu Ly" },
+    { id: "p2", name: "Cánh đồng điện gió Đắk Song" },
+    { id: "p3", name: "Thiền Viện Trúc Lâm Đạo Nguyên" },
+  ];
+
+  const m1 = findMentionedPlaces("cho mình hỏi đường đến thac luu ly", places);
+  assert.equal(m1.length, 1);
+  assert.equal(m1[0].id, "p1");
+
+  const m2 = findMentionedPlaces("khám phá Cánh Đồng Điện Gió Đắk Song", places);
+  assert.equal(m2.length, 1);
+  assert.equal(m2[0].id, "p2");
+
+  const m3 = findMentionedPlaces("thời tiết hôm nay thế nào?", places);
+  assert.equal(m3.length, 0);
 });

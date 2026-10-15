@@ -48,6 +48,15 @@ export interface ChatMessage {
   placeIds?: string[];
   timestamp?: string;
   isFailed?: boolean;
+  itinerarySuggestion?: {
+    days?: number;
+    title?: string;
+  };
+  quizSuggestion?: {
+    placeId?: string;
+    placeName?: string;
+    queryCount?: number;
+  };
 }
 
 export interface ChatRequest {
