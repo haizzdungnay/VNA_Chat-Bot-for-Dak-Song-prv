@@ -1,11 +1,13 @@
 {
   "listCSS": [
-    "assets/index-DzFQOEIO.css"
+    "assets/index-DWmeFVxy.css"
   ],
   "listSyncJS": [
-    "assets/index.CioEr_1S.module.js"
+    "assets/index.CFuxSzDO.module.js"
   ],
-  "listAsyncJS": [],
+  "listAsyncJS": [
+    "assets/index.es.C0pjqZS6.module.js"
+  ],
   "pages": [],
   "app": {
     "headerTitle": "Du lịch Đắk Song",
