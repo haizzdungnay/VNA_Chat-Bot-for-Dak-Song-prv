@@ -255,7 +255,7 @@ export const PlannerPage: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: "16px 16px 80px 16px", maxWidth: 640, margin: "0 auto" }}>
+    <div style={{ padding: "16px 16px 120px 16px", maxWidth: 640, margin: "0 auto" }}>
       {/* Top Header & Navigation */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -654,41 +654,44 @@ export const PlannerPage: React.FC = () => {
               marginBottom: 16,
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div>
-                <span
-                  style={{
-                    backgroundColor: "var(--color-primary-light)",
-                    color: "var(--color-primary)",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    padding: "2px 8px",
-                    borderRadius: 6,
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {itinerary.durationDays} Ngày {Math.max(1, itinerary.durationDays - 1)} Đêm
-                </span>
-                <h2 style={{ fontSize: 16, fontWeight: 700, margin: "6px 0 4px 0", color: "var(--color-text-primary)" }}>
-                  {itinerary.title}
-                </h2>
-                <div style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-                  {itinerary.travelersCount} khách • Khởi hành {itinerary.startDate}
-                </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <span
+                style={{
+                  backgroundColor: "var(--color-primary-light)",
+                  color: "var(--color-primary)",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: "3px 8px",
+                  borderRadius: 6,
+                  textTransform: "uppercase",
+                }}
+              >
+                {itinerary.durationDays} Ngày {Math.max(1, itinerary.durationDays - 1)} Đêm
+              </span>
+              <div style={{ fontSize: 12, color: "var(--color-text-secondary)", fontWeight: 500 }}>
+                {itinerary.travelersCount} khách • Khởi hành {itinerary.startDate}
               </div>
+            </div>
 
+            <h2 style={{ fontSize: 17, fontWeight: 700, margin: "6px 0 8px 0", color: "var(--color-text-primary)", lineHeight: 1.35 }}>
+              {itinerary.title}
+            </h2>
+
+            {/* Action Buttons Row */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 10, marginBottom: itinerary.summary ? 10 : 0 }}>
               <button
                 type="button"
                 onClick={() => setShowCheckoutModal(true)}
                 className="eco-btn-secondary"
                 style={{
-                  padding: "8px 12px",
+                  padding: "9px 12px",
                   borderRadius: 8,
                   fontSize: 12,
                   fontWeight: 700,
                   display: "flex",
                   alignItems: "center",
-                  gap: 4,
+                  justifyContent: "center",
+                  gap: 6,
                   cursor: "pointer",
                   backgroundColor: "var(--color-bg-secondary, #f0fdfa)",
                   color: "var(--color-primary, #0f766e)",
@@ -708,20 +711,21 @@ export const PlannerPage: React.FC = () => {
                 disabled={isSaving}
                 className="eco-btn-primary"
                 style={{
-                  padding: "8px 12px",
+                  padding: "9px 12px",
                   borderRadius: 8,
                   fontSize: 12,
                   fontWeight: 700,
                   display: "flex",
                   alignItems: "center",
-                  gap: 4,
+                  justifyContent: "center",
+                  gap: 6,
                   cursor: "pointer",
                 }}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
                   bookmark
                 </span>
-                {isSaving ? "Đang lưu..." : itinerary.status === "saved" ? "Đã lưu ✓" : "Lưu chuyến đi"}
+                <span>{isSaving ? "Đang lưu..." : itinerary.status === "saved" ? "Đã lưu ✓" : "Lưu chuyến đi"}</span>
               </button>
             </div>
 
@@ -997,14 +1001,14 @@ export const PlannerPage: React.FC = () => {
           })()}
 
           {/* Timeline Bottom Action Buttons */}
-          <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 22 }}>
             <button
               type="button"
               onClick={() => setShowAddPlaceModal(true)}
               style={{
-                flex: 1,
-                padding: "11px",
-                borderRadius: 8,
+                width: "100%",
+                padding: "12px 16px",
+                borderRadius: 10,
                 border: "1px dashed var(--color-primary)",
                 backgroundColor: "var(--color-surface)",
                 color: "var(--color-primary)",
@@ -1013,14 +1017,15 @@ export const PlannerPage: React.FC = () => {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 6,
+                gap: 8,
                 cursor: "pointer",
+                boxSizing: "border-box",
               }}
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>
                 add_location_alt
               </span>
-              Thêm điểm vào ngày này
+              <span>Thêm điểm vào ngày này</span>
             </button>
 
             <button
@@ -1028,14 +1033,23 @@ export const PlannerPage: React.FC = () => {
               onClick={() => setStep("setup")}
               className="eco-btn-secondary"
               style={{
+                width: "100%",
                 padding: "11px 16px",
-                borderRadius: 8,
+                borderRadius: 10,
                 fontSize: 13,
                 fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
                 cursor: "pointer",
+                boxSizing: "border-box",
               }}
             >
-              Đổi thiết lập
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                tune
+              </span>
+              <span>Đổi thiết lập</span>
             </button>
           </div>
         </div>
