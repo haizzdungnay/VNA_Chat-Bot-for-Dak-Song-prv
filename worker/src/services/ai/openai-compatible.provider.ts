@@ -120,9 +120,11 @@ export class OpenAICompatibleProvider implements AIProvider {
     try {
       const text = await response.text();
       let content = "";
+      let reasoningContent = "";
       try {
         const data = JSON.parse(text);
         content = data?.choices?.[0]?.message?.content || "";
+        reasoningContent = data?.choices?.[0]?.message?.reasoning_content || "";
       } catch {
         // Fallback parser cho dinh dang SSE stream ("data: {...}") phong truong hop proxy ep stream
         const lines = text.split("\n");
@@ -137,13 +139,15 @@ export class OpenAICompatibleProvider implements AIProvider {
                 chunk?.choices?.[0]?.message?.content ||
                 "";
               content += delta;
+              const rDelta = chunk?.choices?.[0]?.delta?.reasoning_content || chunk?.choices?.[0]?.message?.reasoning_content || "";
+              reasoningContent += rDelta;
             } catch {
               // Bo qua chunk khong parse duoc
             }
           }
         }
       }
-      return this.parseResponse(content);
+      return this.parseResponse(content, reasoningContent);
     } catch (err: any) {
       if (err instanceof AIProviderError) throw err;
       console.error("[OpenAICompatibleProvider] parse failure from upstream");
@@ -151,8 +155,14 @@ export class OpenAICompatibleProvider implements AIProvider {
     }
   }
 
-  private parseResponse(raw: string): ChatResponse {
-    const trimmed = (raw || "").trim();
+  private parseResponse(raw: string, upstreamReasoning?: string): ChatResponse {
+    let trimmed = (raw || "").trim();
+    let extractedThought = (upstreamReasoning || "").trim();
+    const thinkMatch = trimmed.match(/<think>([\s\S]*?)<\/think>/i);
+    if (thinkMatch) {
+      if (!extractedThought) extractedThought = thinkMatch[1].trim();
+      trimmed = trimmed.replace(/<think>[\s\S]*?<\/think>/i, "").trim();
+    }
     if (!trimmed) {
       return {
         answer: "Xin lỗi, hiện tại trợ lý chưa nhận được nội dung phản hồi từ mô hình.",
@@ -166,11 +176,14 @@ export class OpenAICompatibleProvider implements AIProvider {
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         if (typeof parsed.answer === "string" && parsed.answer.trim()) {
+          const jsonThought = typeof parsed.thought === "string" && parsed.thought.trim() ? parsed.thought.trim() : undefined;
+          const finalThought = jsonThought || (extractedThought ? extractedThought : undefined);
           return {
             answer: parsed.answer.trim(),
             placeIds: Array.isArray(parsed.placeIds)
               ? parsed.placeIds.filter((id: unknown): id is string => typeof id === "string")
               : [],
+            ...(finalThought ? { thought: finalThought } : {}),
           };
         }
       }
@@ -182,6 +195,7 @@ export class OpenAICompatibleProvider implements AIProvider {
     return {
       answer: trimmed,
       placeIds: [],
+      ...(extractedThought ? { thought: extractedThought } : {}),
     };
   }
 }

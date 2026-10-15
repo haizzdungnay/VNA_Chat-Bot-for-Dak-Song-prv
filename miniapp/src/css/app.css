@@ -1046,3 +1046,146 @@ body {
   animation: fadeIn 0.2s ease forwards;
 }
 
+
+
+/* AI Thinking & Reasoning Styles */
+@keyframes aiPulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(31, 93, 66, 0.25);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(31, 93, 66, 0);
+    transform: scale(1.04);
+  }
+}
+
+@keyframes aiDotBounce {
+  0%, 80%, 100% {
+    transform: scale(0.65);
+    opacity: 0.35;
+  }
+  40% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+@keyframes aiShimmerPulse {
+  0%, 100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.ai-thinking-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 4px 14px rgba(31, 93, 66, 0.06);
+  align-self: flex-start;
+  max-width: 90%;
+  animation: fadeIn 0.25s ease-out;
+}
+
+.ai-thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ai-thinking-icon-wrapper {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1F5D42 0%, #286B37 100%);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  animation: aiPulseGlow 1.8s infinite ease-in-out;
+}
+
+.ai-thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ai-thinking-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: var(--color-primary);
+  display: inline-block;
+  animation: aiDotBounce 1.4s infinite ease-in-out both;
+}
+
+.ai-thinking-dot:nth-child(1) { animation-delay: -0.32s; }
+.ai-thinking-dot:nth-child(2) { animation-delay: -0.16s; }
+.ai-thinking-dot:nth-child(3) { animation-delay: 0s; }
+
+.ai-thinking-step-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  transition: opacity 0.3s ease;
+}
+
+.ai-thinking-progress-bar {
+  height: 3px;
+  width: 100%;
+  border-radius: 2px;
+  background-color: var(--color-surface-container, #e5e7eb);
+  overflow: hidden;
+  position: relative;
+}
+
+.ai-thinking-progress-indicator {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-primary) 0%, var(--color-ochre) 100%);
+  border-radius: 2px;
+  animation: aiShimmerPulse 1.5s infinite ease-in-out;
+}
+
+/* AI Thought / Reasoning Accordion Block */
+.ai-reasoning-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: var(--radius-full);
+  background-color: rgba(31, 93, 66, 0.08);
+  color: var(--color-primary);
+  border: 1px solid rgba(31, 93, 66, 0.16);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 8px;
+  user-select: none;
+  transition: all 0.18s ease;
+}
+
+.ai-reasoning-toggle:hover {
+  background-color: rgba(31, 93, 66, 0.13);
+}
+
+.ai-reasoning-box {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background-color: var(--color-surface-container, #f3f4f6);
+  border-left: 3px solid var(--color-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  animation: fadeIn 0.2s ease-out;
+}

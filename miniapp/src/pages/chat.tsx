@@ -14,6 +14,12 @@ import {
   shouldSuggestQuiz,
 } from "../utils/chat-helpers";
 
+const THINKING_STEPS = [
+  "AI đang phân tích câu hỏi của bạn...",
+  "Đang tra cứu cơ sở dữ liệu du lịch Đắk Song...",
+  "Đang lựa chọn địa danh và tổng hợp phản hồi...",
+];
+
 export const AIChatPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -36,6 +42,27 @@ export const AIChatPage: React.FC = () => {
 
   const [failedTurn, setFailedTurn] = useState<{ id: string; text: string } | null>(null);
   const inFlightRef = useRef(false);
+
+  const [expandedThoughts, setExpandedThoughts] = useState<Record<string, boolean>>({});
+  const [thinkingStepIdx, setThinkingStepIdx] = useState(0);
+
+  useEffect(() => {
+    if (!loading) {
+      setThinkingStepIdx(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setThinkingStepIdx((prev) => (prev + 1) % THINKING_STEPS.length);
+    }, 1600);
+    return () => clearInterval(interval);
+  }, [loading]);
+
+  const toggleThought = (msgId: string) => {
+    setExpandedThoughts((prev) => ({
+      ...prev,
+      [msgId]: prev[msgId] === false ? true : false,
+    }));
+  };
 
   const [contextualPlace, setContextualPlace] = useState<Place | null>(null);
   const autoSentPlaceIdRef = useRef<string | null>(null);
@@ -204,6 +231,7 @@ export const AIChatPage: React.FC = () => {
         timestamp: formatTime(),
         itinerarySuggestion,
         quizSuggestion: finalQuizSuggestion,
+        thought: res.thought,
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -470,6 +498,35 @@ export const AIChatPage: React.FC = () => {
             >
               {/* Message Bubble */}
               <div className={isUser ? "chat-bubble-user" : "chat-bubble-assistant"}>
+                {!isUser && msg.thought && (
+                  <div style={{ marginBottom: 10 }}>
+                    <button
+                      type="button"                      className="ai-reasoning-toggle"
+                      onClick={() => toggleThought(msg.id)}
+                      aria-expanded={expandedThoughts[msg.id] ?? true}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                        psychology
+                      </span>
+                      <span>Quá trình suy luận</span>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                        {(expandedThoughts[msg.id] ?? true) ? "expand_less" : "expand_more"}
+                      </span>
+                    </button>
+
+                    {(expandedThoughts[msg.id] ?? true) && (
+                      <div className="ai-reasoning-box">
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4, color: "var(--color-primary)", fontWeight: 600, fontSize: 11 }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 13 }}>
+                            auto_awesome
+                          </span>
+                          <span>Tư duy & đối chiếu dữ liệu:</span>
+                        </div>
+                        <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{msg.thought}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{msg.content}</p>
                 {msg.timestamp && (
                   <span
@@ -623,33 +680,35 @@ export const AIChatPage: React.FC = () => {
           );
         })}
 
-        {/* Loading Indicator */}
+        {/* Loading Indicator with Thinking Animation */}
         {loading && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "10px 14px",
-              borderRadius: "var(--radius-md)",
-              backgroundColor: "var(--color-surface)",
-              border: "1px solid var(--color-border)",
-              alignSelf: "flex-start",
-            }}
-          >
-            <div
-              style={{
-                width: 16,
-                height: 16,
-                borderRadius: "50%",
-                border: "2px solid var(--color-border)",
-                borderTopColor: "var(--color-primary)",
-                animation: "spin 0.8s linear infinite",
-              }}
-            />
-            <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-              AI đang suy nghĩ...
-            </span>
+          <div className="ai-thinking-card">
+            <div className="ai-thinking-header">
+              <div className="ai-thinking-icon-wrapper">
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                  psychology
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="ai-thinking-step-text">
+                  {THINKING_STEPS[thinkingStepIdx]}
+                </span>
+                <div className="ai-thinking-dots">
+                  <span className="ai-thinking-dot" />
+                  <span className="ai-thinking-dot" />
+                  <span className="ai-thinking-dot" />
+                </div>
+              </div>
+            </div>
+            <div className="ai-thinking-progress-bar">
+              <div
+                className="ai-thinking-progress-indicator"
+                style={{
+                  width: ((thinkingStepIdx + 1) / THINKING_STEPS.length * 100) + "%",
+                  transition: "width 0.4s ease",
+                }}
+              />
+            </div>
           </div>
         )}
 

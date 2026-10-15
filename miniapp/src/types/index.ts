@@ -57,6 +57,7 @@ export interface ChatMessage {
     placeName?: string;
     queryCount?: number;
   };
+  thought?: string;
 }
 
 export interface ChatRequest {
@@ -68,6 +69,7 @@ export interface ChatRequest {
 export interface ChatResponse {
   answer: string;
   placeIds: string[];
+  thought?: string;
 }
 
 export type AddressAs = "anh" | "chi" | "ban" | "em";
