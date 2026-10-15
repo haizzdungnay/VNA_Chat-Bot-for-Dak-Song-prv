@@ -174,6 +174,15 @@ const LuckySpinPage: React.FC = () => {
 
     setSpinning(true);
     try {
+      // Auto-claim daily free spin if eligible and out of turns
+      if (availableTurns <= 0 && dailyEligible) {
+        try {
+          const claim = await api.claimDailySpin();
+          setAvailableTurns(claim.availableTurns);
+          setDailyEligible(false);
+        } catch {}
+      }
+
       const randomSuffix =
         typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
           ? crypto.randomUUID()
