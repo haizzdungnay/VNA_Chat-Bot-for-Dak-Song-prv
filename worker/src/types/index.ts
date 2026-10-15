@@ -88,6 +88,7 @@ export interface ChatRequest {
 export interface ChatResponse {
   answer: string;
   placeIds: string[];
+  thought?: string;
 }
 
 export interface ChatInput {

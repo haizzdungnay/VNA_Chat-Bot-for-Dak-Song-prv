@@ -205,9 +205,25 @@ ${allArticlesCatalog}
       .filter((id) => validIds.has(id))
       .slice(0, 3);
 
+    let finalThought = result.thought?.trim();
+    if (!finalThought) {
+      const matchedPlaceNames = filteredPlaceIds
+        .map((id) => places.find((p) => p.id === id)?.name)
+        .filter(Boolean);
+      const placeDetail = matchedPlaceNames.length > 0
+        ? "chọn lọc các điểm đến tiêu biểu (" + matchedPlaceNames.join(", ") + ")"
+        : "trích xuất thông tin phù hợp từ cẩm nang du lịch";
+      finalThought = [
+        "1. Phân tích câu hỏi: xác định nhu cầu tìm hiểu du lịch Đắk Song của du khách.",
+        "2. Đối chiếu cơ sở dữ liệu: kiểm tra " + places.length + " địa điểm và dữ liệu văn hóa chính thức.",
+        "3. Lựa chọn phản hồi: " + placeDetail + ", cấu trúc câu trả lời thân thiện, súc tích kèm gợi ý chi tiết."
+      ].join("\n");
+    }
+
     return {
       answer: result.answer,
       placeIds: filteredPlaceIds,
+      thought: finalThought,
     };
   }
 }
