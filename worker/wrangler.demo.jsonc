@@ -17,14 +17,18 @@
   ],
   "vars": {
     "AI_PROVIDER": "openai-compatible",
-    "AI_BASE_URL": "https://rrdf59c.abc-tunnel.us/v1",
+    "AI_BASE_URL": "https://rats-physically-newest-looked.trycloudflare.com/v1",
     "AI_MODEL": "ag/gemini-3.8-flash-low",
     "AI_REASONING_EFFORT": "low",
     "AI_JSON_MODE": "false",
     "ALLOWED_AI_HOSTS": "*",
     "ENVIRONMENT": "staging",
     "ADMIN_AI_CONFIG_ENABLED": "true",
-    "CORS_ALLOW_ORIGIN": "*"
+    "CORS_ALLOW_ORIGIN": "*",
+    "EMAIL_PROVIDER": "gmail",
+    "GMAIL_USER": "tuanduongtempproject@gmail.com",
+    "EMAIL_FROM": "Du Lịch Đắk Song <tuanduongtempproject@gmail.com>",
+    "MOCK_PAYMENT_ENABLED": "true"
   }
 }
 
